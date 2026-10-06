@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Кошелёк</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg:var(--tg-theme-bg-color,#ffffff);
+  --bg2:var(--tg-theme-secondary-bg-color,#f2f2f7);
+  --tx:var(--tg-theme-text-color,#111111);
+  --hint:var(--tg-theme-hint-color,#8a8a8e);
+  --acc:var(--tg-theme-button-color,#2f7cf6);
+  --acc-tx:var(--tg-theme-button-text-color,#ffffff);
+  --ok:#2e9d5b; --warn:#d9822b; --line:rgba(127,127,127,.18);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-tg]){--bg:#17181b;--bg2:#222327;--tx:#f2f2f2;--hint:#8e8e93}
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg2);color:var(--tx);font:16px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif}
+body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+input,select{font:inherit;color:var(--tx);background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:12px;width:100%;outline:none}
+input:focus{border-color:var(--acc)}
+.wrap{max-width:520px;margin:0 auto;padding:12px 14px}
+.card{background:var(--bg);border-radius:16px;padding:14px;margin-bottom:10px}
+.hero{text-align:center;padding:20px 14px 16px}
+.hero .lbl{color:var(--hint);font-size:14px}
+.hero .big{font-size:46px;font-weight:700;letter-spacing:-1px;margin:2px 0}
+.hero .sub{color:var(--hint);font-size:14px}
+.row{display:flex;gap:8px;align-items:center}
+.grow{flex:1}
+.btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:13px 10px;border-radius:14px;background:var(--bg);font-weight:600}
+.btn.pri{background:var(--acc);color:var(--acc-tx)}
+.btn.sm{padding:8px 12px;font-size:14px;border-radius:10px;background:var(--bg2);font-weight:500}
+.acts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.acts .btn{flex-direction:column;gap:2px;padding:12px 4px;font-size:14px}
+.acts .btn b{font-size:22px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:8px 12px;border-radius:20px;background:var(--bg2);font-size:14px;white-space:nowrap}
+.chip.on{background:var(--acc);color:var(--acc-tx)}
+.h{font-size:13px;color:var(--hint);text-transform:uppercase;letter-spacing:.4px;margin:4px 2px 8px}
+.env{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.env div{background:var(--bg2);border-radius:12px;padding:10px}
+.env small{color:var(--hint);display:block;font-size:12px}
+.env b{font-size:18px}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--acc);border-radius:3px}
+.note{display:flex;gap:10px;align-items:flex-start;background:var(--bg);border-radius:14px;padding:12px;margin-bottom:8px;font-size:15px}
+.note .ic{font-size:20px;line-height:1}
+.muted{color:var(--hint)}
+.plus{color:var(--ok)}
+.list .it{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.list .it:last-child{border-bottom:0}
+.list .em{width:34px;height:34px;border-radius:10px;background:var(--bg2);display:flex;align-items:center;justify-content:center;flex:none}
+.list .meta{font-size:12px;color:var(--hint)}
+.list .del{color:var(--hint);padding:6px 8px;font-size:18px}
+.day{font-size:13px;color:var(--hint);margin:14px 2px 4px}
+.nav{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);display:flex;padding:6px 6px calc(6px + env(safe-area-inset-bottom));z-index:5}
+.nav button{flex:1;display:flex;flex-direction:column;align-items:center;font-size:11px;color:var(--hint);padding:4px 0}
+.nav button b{font-size:20px;font-weight:400}
+.nav button.on{color:var(--acc)}
+.quick{display:flex;gap:8px;margin-bottom:10px}
+.quick input{background:var(--bg);border:0}
+.sheet{position:fixed;inset:0;z-index:20;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.35)}
+.sheet.hidden{display:none}
+.sheet .box{background:var(--bg);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto}
+.sheet h3{margin:0 0 12px;font-size:18px}
+.amt{font-size:34px;font-weight:700;text-align:center;border:0;background:var(--bg2)}
+.seg{display:flex;background:var(--bg2);border-radius:12px;padding:3px}
+.seg button{flex:1;padding:8px;border-radius:9px;font-size:14px}
+.seg button.on{background:var(--bg);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:13px;color:var(--hint);margin:0 2px 4px}
+.two{display:grid;grid-template-columns:2fr 1fr;gap:8px}
+.toast{position:fixed;left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:30;max-width:496px;margin:0 auto;background:#1f1f22;color:#fff;border-radius:14px;padding:12px 14px;font-size:14px;display:flex;gap:10px;align-items:center;opacity:0;transform:translateY(10px);transition:.2s;pointer-events:none}
+.toast.show{opacity:1;transform:none;pointer-events:auto}
+.toast button{color:#7db4ff;font-weight:600;flex:none}
+.kv{display:flex;justify-content:space-between;padding:6px 0;font-size:15px}
+.stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.stats div{background:var(--bg2);border-radius:12px;padding:10px;text-align:center}
+.stats small{display:block;color:var(--hint);font-size:12px}
+.stats b{font-size:16px}
+.cat{margin-bottom:10px}
+.cat .row{font-size:14px}
+.wd{display:flex;align-items:flex-end;gap:6px;height:90px;margin-top:6px}
+.wd div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;font-size:11px;color:var(--hint)}
+.wd i{display:block;width:100%;background:var(--acc);border-radius:5px 5px 2px 2px;min-height:2px;margin-bottom:4px;opacity:.85}
+</style>
+</head>
+<body>
+<div id="app" class="wrap"></div>
+<nav class="nav" id="nav">
+  <button data-tab="home" class="on"><b>◎</b>Кошелёк</button>
+  <button data-tab="hist"><b>☰</b>История</button>
+  <button data-tab="stat"><b>▥</b>Анализ</button>
+  <button data-tab="set"><b>⚙︎</b>Настройки</button>
+</nav>
+<div id="sheet" class="sheet hidden"><div class="box" id="sheetBox"></div></div>
+<div id="toast" class="toast"><span id="toastMsg" class="grow"></span><button id="toastUndo">Отменить</button></div>
+
+<script>
+'use strict';
+/* ---------- Telegram + хранилище ---------- */
+const tg = window.Telegram && window.Telegram.WebApp;
+const inTG = !!(tg && tg.initData);
+if (inTG) { document.documentElement.setAttribute('data-tg', ''); tg.ready(); tg.expand(); }
+const hasCloud = inTG && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9');
+
+function lsGet(k){ try { return localStorage.getItem('kw_'+k) || ''; } catch(e){ return ''; } }
+function lsSet(k,v){ try { localStorage.setItem('kw_'+k, v); } catch(e){} }
+function lsDel(k){ try { localStorage.removeItem('kw_'+k); } catch(e){} }
+
+const Store = {
+  get(keys){
+    if (!hasCloud) { const o = {}; keys.forEach(k => o[k] = lsGet(k)); return Promise.resolve(o); }
+    return new Promise(res => tg.CloudStorage.getItems(keys, (err, v) => res(err ? null : (v || {}))));
+  },
+  set(k, v){
+    lsSet(k, v);
+    if (!hasCloud) return Promise.resolve(true);
+    return new Promise(res => tg.CloudStorage.setItem(k, v, err => res(!err)));
+  },
+  del(keys){
+    keys.forEach(lsDel);
+    if (!hasCloud || !keys.length) return Promise.resolve(true);
+    return new Promise(res => tg.CloudStorage.removeItems(keys, err => res(!err)));
+  }
+};
+
+/* ---------- Состояние ---------- */
+const DEF_SET = { salary:0, salaryDay:10, rent:0, rentDay:10, wife:0, wifeDay:10, giglyCap:0, cushionPct:20, cushionGoal:500, setup:false };
+const DEF_CATS = ['Еда','Такси','Кафе','Ребёнок','Транспорт','Телефон','Реквизит','Gigly','Дом','Другое'];
+const EMO = {'Еда':'🛒','Такси':'🚕','Кафе':'☕','Ребёнок':'🧸','Транспорт':'⛽','Телефон':'📱','Реквизит':'🎩','Gigly':'🚀','Дом':'🏠','Другое':'•','Неучтено':'❔','Аренда':'🔑','Жене':'👨‍👧'};
+const IN_TYPES = [['salary','Зарплата'],['prepay','Предоплата'],['fee','Гонорар'],['tips','Чаевые'],['other','Другое']];
+const IN_NAME = Object.fromEntries(IN_TYPES.concat([['start','Стартовый остаток']]));
+const ENV = { m:'Обязательное', c:'Подушка', g:'Gigly', l:'Жизнь' };
+const ACC = { cash:'💵 Наличные', card:'💳 Карта' };
+
+let S = { set:{...DEF_SET}, cats:{}, tx:[], wish:{items:[], skipped:[]}, txParts:0 };
+let tab = 'home';
+
+async function load(){
+  let base = await Store.get(['s','c','w','txn']);
+  if (base === null) { // облако недоступно: работаем из локальной копии
+    base = {}; ['s','c','w','txn'].forEach(k => base[k] = lsGet(k));
+    toast('Нет связи с облаком Telegram, показываю локальную копию');
+  }
+  try { if (base.s) S.set = {...DEF_SET, ...JSON.parse(base.s)}; } catch(e){}
+  try { if (base.c) S.cats = JSON.parse(base.c); } catch(e){}
+  try { if (base.w) S.wish = {items:[], skipped:[], ...JSON.parse(base.w)}; } catch(e){}
+  const n = parseInt(base.txn || '0', 10) || 0;
+  S.txParts = n;
+  if (n) {
+    const keys = Array.from({length:n}, (_, i) => 'tx'+i);
+    const parts = (await Store.get(keys)) || {};
+    try { S.tx = JSON.parse(keys.map(k => parts[k] || lsGet(k)).join('')); } catch(e){ S.tx = []; toast('Не удалось прочитать историю'); }
+  }
+  DEF_CATS.forEach(c => { if (!S.cats[c]) S.cats[c] = { n:0, last:0, ac:'cash' }; });
+}
+
+let saving = Promise.resolve();
+function save(){
+  saving = saving.then(async () => {
+    const txs = JSON.stringify(S.tx);
+    const parts = [];
+    for (let i = 0; i < txs.length; i += 3800) parts.push(txs.slice(i, i + 3800));
+    if (!parts.length) parts.push('[]');
+    await Promise.all([
+      Store.set('s', JSON.stringify(S.set)),
+      Store.set('c', JSON.stringify(S.cats)),
+      Store.set('w', JSON.stringify(S.wish)),
+      ...parts.map((p, i) => Store.set('tx'+i, p))
+    ]);
+    await Store.set('txn', String(parts.length));
+    if (S.txParts > parts.length) {
+      await Store.del(Array.from({length:S.txParts - parts.length}, (_, i) => 'tx'+(parts.length + i)));
+    }
+    S.txParts = parts.length;
+  }).catch(() => toast('Не сохранилось, попробуй ещё раз'));
+  return saving;
+}
+
+/* ---------- Утилиты ---------- */
+const DAY = 864e5;
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const r0 = n => Math.round(n);
+const fmt = n => r0(n).toLocaleString('ru-RU') + ' zł';
+const num = v => { const x = parseFloat(String(v).replace(',', '.').replace(/\s/g, '')); return isFinite(x) ? x : 0; };
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const sod = d => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+const clampDay = (y, m, d) => new Date(y, m, Math.min(d, new Date(y, m + 1, 0).getDate()));
+const ddmm = d => new Date(d).toLocaleDateString('ru-RU', {day:'numeric', month:'long'});
+const emo = c => EMO[c] || (c ? c[0].toUpperCase() : '•');
+const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
+function haptic(t){ try { if (inTG) tg.HapticFeedback.notificationOccurred(t || 'success'); } catch(e){} }
+function plural(n, a, b, c){ n = Math.abs(n) % 100; const n1 = n % 10; if (n > 10 && n < 20) return c; if (n1 > 1 && n1 < 5) return b; if (n1 === 1) return a; return c; }
+
+/* ---------- Финансовая логика ---------- */
+function cycle(now = new Date()){
+  const d = S.set.salaryDay || 1, y = now.getFullYear(), m = now.getMonth();
+  const thisM = clampDay(y, m, d);
+  return sod(now) >= thisM ? { start:thisM, next:clampDay(y, m + 1, d) } : { start:clampDay(y, m - 1, d), next:thisM };
+}
+
+function balances(){
+  const env = {m:0, c:0, g:0, l:0}, acc = {cash:0, card:0};
+  for (const t of S.tx) {
+    if (t.k === 'in') { for (const e in t.s) env[e] += t.s[e]; acc[t.ac] += t.a; }
+    else if (t.k === 'out' || t.k === 'pay') { for (const e in t.s) env[e] -= t.s[e]; acc[t.ac] -= t.a; }
+    else if (t.k === 'move') { env[t.f] -= t.a; env[t.to] += t.a; }
+    else if (t.k === 'xfer') { acc[t.f] -= t.a; acc[t.to] += t.a; }
+    else if (t.k === 'adj') { env.l += t.a; acc[t.ac] += t.a; }
+  }
+  return {env, acc};
+}
+
+// Обязательные платежи этого цикла (аренда и жене) и оплачены ли они
+function mandatory(){
+  const {start, next} = cycle();
+  const items = [['rent','Аренда',S.set.rent,S.set.rentDay],['wife','Жене',S.set.wife,S.set.wifeDay]];
+  return items.filter(i => i[2] > 0).map(([id, name, amount, day]) => {
+    // Каждый платёж закрывает конкретную дату (t.d); следующая дата идёт через месяц после неё
+    const pays = S.tx.filter(t => t.k === 'pay' && t.c === id && t.d).sort((a, b) => a.d - b.d);
+    const last = pays[pays.length - 1];
+    let due;
+    if (last) { const d = new Date(last.d); due = clampDay(d.getFullYear(), d.getMonth() + 1, day); }
+    else {
+      const since = sod(S.set.since || Date.now());
+      due = clampDay(since.getFullYear(), since.getMonth(), day);
+      if (due < since) due = clampDay(since.getFullYear(), since.getMonth() + 1, day);
+    }
+    const done = due >= next; // платёж в день зарплаты или позже оплачивается из следующей зарплаты
+    return { id, name, amount, due, paid: done && last ? last.a : 0, done };
+  });
+}
+
+function giglyThisCycle(){
+  const {start} = cycle();
+  return S.tx.filter(t => t.k === 'in' && t.t >= +start).reduce((a, t) => a + (t.s.g || 0), 0);
+}
+
+// Раскладка прихода по конвертам
+function split(a, type){
+  const b = balances().env;
+  const need = mandatory().filter(x => !x.done).reduce((s, x) => s + x.amount, 0);
+  const s = {};
+  let rest = a;
+  const toM = Math.min(rest, Math.max(0, need - b.m));
+  if (toM > 0) { s.m = toM; rest -= toM; }
+  const irregular = !['salary','start'].includes(type);
+  if (irregular && rest > 0) {
+    const toC = r0(rest * (S.set.cushionPct || 0) / 100);
+    if (toC > 0) { s.c = toC; rest -= toC; }
+  }
+  if (rest > 0 && S.set.giglyCap > 0 && type !== 'start') {
+    const room = Math.max(0, S.set.giglyCap - giglyThisCycle());
+    const toG = Math.min(room, Math.floor(rest * 0.3));
+    if (toG > 0) { s.g = toG; rest -= toG; }
+  }
+  if (rest > 0) s.l = rest;
+  return s;
+}
+
+// Списание: сначала из выбранного конверта, нехватку берём из «Жизни»
+function debit(a, pref){
+  const b = balances().env, s = {};
+  let rest = a;
+  if (pref !== 'l') {
+    const take = Math.min(rest, Math.max(0, b[pref]));
+    if (take > 0) { s[pref] = take; rest -= take; }
+  }
+  if (rest > 0) s.l = (s.l || 0) + rest;
+  return s;
+}
+
+function today(){
+  const {next} = cycle(), now = sod(new Date());
+  const daysLeft = Math.max(1, Math.round((next - now) / DAY));
+  const spentToday = S.tx.filter(t => t.k === 'out' && t.t >= +now).reduce((a, t) => a + (t.s.l || 0), 0);
+  // Если на обязательное не хватает, недостачу считаем занятой из «Жизни»
+  const env = balances().env;
+  const short = Math.max(0, mandatory().filter(x => !x.done).reduce((s, x) => s + x.amount, 0) - env.m);
+  const lifeNow = env.l - short;
+  const daily = Math.max(0, Math.floor((lifeNow + spentToday) / daysLeft));
+  const left = daily - spentToday;
+  const dow = (now.getDay() + 6) % 7;
+  const toSun = Math.min(7 - dow, daysLeft);
+  const week = Math.max(0, Math.min(lifeNow, daily * toSun - spentToday));
+  return { daysLeft, daily, left, week, spentToday, lifeNow, next, short };
+}
+
+function splitText(s){
+  return Object.keys(ENV).filter(e => s[e]).map(e => `${ENV[e]} ${fmt(s[e])}`).join(' · ');
+}
+
+/* ---------- Действия ---------- */
+function addIncome(a, type, ac, note){
+  const s = split(a, type);
+  const t = { i:uid(), t:Date.now(), k:'in', a, c:type, ac, s, n:note || '' };
+  S.tx.push(t); save(); haptic();
+  toast(`+${fmt(a)} → ${splitText(s)}`, [t.i]);
+  render();
+}
+
+function addExpense(a, cat, ac, pref){
+  cat = cat || 'Другое';
+  if (!pref) pref = cat === 'Gigly' ? 'g' : 'l';
+  const s = debit(a, pref);
+  const t = { i:uid(), t:Date.now(), k:'out', a, c:cat, ac, s };
+  S.tx.push(t);
+  const c = S.cats[cat] || (S.cats[cat] = { n:0, last:0, ac });
+  c.n++; c.last = a; c.ac = ac;
+  save(); haptic();
+  const d = today();
+  const msg = d.left >= 0 ? `−${fmt(a)} ${cat}. Сегодня ещё можно ${fmt(d.left)}`
+                          : `−${fmt(a)} ${cat}. Сегодня уже сверх на ${fmt(-d.left)}, ничего страшного: завтра лимит пересчитается`;
+  toast(msg, [t.i]);
+  render();
+}
+
+function addPay(id, a, ac){
+  const item = mandatory().find(x => x.id === id);
+  const t = { i:uid(), t:Date.now(), k:'pay', a, c:id, ac, s:debit(a, 'm'), d:+item.due };
+  S.tx.push(t);
+  const ids = [t.i];
+  // Если все обязательные оплачены, остаток из конверта уходит в «Жизнь»
+  const left = balances().env.m;
+  if (mandatory().every(x => x.done) && left > 0) {
+    const mv = { i:uid(), t:Date.now(), k:'move', a:left, f:'m', to:'l' };
+    S.tx.push(mv); ids.push(mv.i);
+  }
+  save(); haptic();
+  toast(`${id === 'rent' ? 'Аренда' : 'Жене'} оплачено: ${fmt(a)}` + (ids.length > 1 ? `. Остаток ${fmt(left)} ушёл в «Жизнь»` : ''), ids);
+  render();
+}
+
+function undo(ids){
+  S.tx = S.tx.filter(t => !ids.includes(t.i));
+  save(); haptic('warning'); render();
+}
+
+/* ---------- Тост ---------- */
+let toastTimer, toastIds = null;
+function toast(msg, ids){
+  $('#toastMsg').textContent = msg;
+  toastIds = ids || null;
+  $('#toastUndo').style.display = ids ? '' : 'none';
+  $('#toast').classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('#toast').classList.remove('show'), ids ? 6000 : 3500);
+}
+$('#toastUndo').onclick = () => { if (toastIds) undo(toastIds); toastIds = null; $('#toast').classList.remove('show'); };
+
+/* ---------- Шторка ---------- */
+let sheetState = {};
+function openSheet(html){ $('#sheetBox').innerHTML = html; $('#sheet').classList.remove('hidden'); const f = $('#sheetBox input.amt'); if (f) setTimeout(() => f.focus(), 60); }
+function closeSheet(){ $('#sheet').classList.add('hidden'); sheetState = {}; }
+$('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
+
+function topCats(){
+  return Object.entries(S.cats).sort((a, b) => b[1].n - a[1].n || DEF_CATS.indexOf(a[0]) - DEF_CATS.indexOf(b[0])).map(x => x[0]);
+}
+
+function sheetExpense(cat){
+  const c = cat && S.cats[cat];
+  sheetState = { kind:'out', cat:cat || '', ac:(c && c.ac) || 'cash', env:cat === 'Gigly' ? 'g' : 'l' };
+  const cats = topCats().slice(0, 14);
+  openSheet(`
+    <h3>➖ Потратил</h3>
+    <div class="field"><input class="amt" id="fAmt" inputmode="decimal" placeholder="0" value="${c && c.last ? c.last : ''}"></div>
+    <div class="field"><div class="chips" id="fCats">${cats.map(x => `<button class="chip ${x === cat ? 'on' : ''}" data-cat="${esc(x)}">${emo(x)} ${esc(x)}</button>`).join('')}</div></div>
+    <div class="field"><input id="fNewCat" placeholder="или новая категория…" value=""></div>
+    <div class="field"><label>Откуда</label><div class="seg" id="fAc">${accSeg(sheetState.ac)}</div></div>
+    <div class="field"><label>Из конверта</label><div class="seg" id="fEnv">${['l','g','c','m'].map(e => `<button data-env="${e}" class="${e === sheetState.env ? 'on' : ''}">${ENV[e]}</button>`).join('')}</div></div>
+    <button class="btn pri" style="width:100%" data-act="saveOut">Записать</button>`);
+}
+
+function sheetIncome(type){
+  sheetState = { kind:'in', type:type || 'prepay', ac:type === 'salary' ? 'card' : 'cash' };
+  openSheet(`
+    <h3>➕ Пришло</h3>
+    <div class="field"><input class="amt" id="fAmt" inputmode="decimal" placeholder="0"></div>
+    <div class="field"><div class="chips" id="fType">${IN_TYPES.map(([k, v]) => `<button class="chip ${k === sheetState.type ? 'on' : ''}" data-type="${k}">${v}</button>`).join('')}</div></div>
+    <div class="field"><input id="fNote" placeholder="комментарий (свадьба 12.10, …)"></div>
+    <div class="field"><label>Куда пришло</label><div class="seg" id="fAc">${accSeg(sheetState.ac)}</div></div>
+    <div class="note muted" id="fPreview" style="background:var(--bg2)">Введи сумму, покажу, как разложу</div>
+    <button class="btn pri" style="width:100%" data-act="saveIn">Записать</button>`);
+}
+
+function accSeg(on){ return Object.keys(ACC).map(k => `<button data-ac="${k}" class="${k === on ? 'on' : ''}">${ACC[k]}</button>`).join(''); }
+
+function sheetWant(){
+  sheetState = { kind:'want' };
+  openSheet(`
+    <h3>🤔 Хочу купить</h3>
+    <div class="field"><input class="amt" id="fAmt" inputmode="decimal" placeholder="0"></div>
+    <div class="field"><input id="fName" placeholder="что именно? (кроссовки)"></div>
+    <button class="btn pri" style="width:100%" data-act="checkWant">Посмотреть, влезает ли</button>`);
+}
+
+function wantVerdict(a, name){
+  const d = today();
+  sheetState = { kind:'want2', a, name };
+  const days = d.daily > 0 ? a / d.daily : Infinity;
+  const newDaily = Math.max(0, Math.floor((d.lifeNow - a) / d.daysLeft));
+  let text, btns;
+  if (a <= d.left && a <= 50) {
+    text = `Влезает в сегодняшние ${fmt(d.left)}. Бери спокойно 🙂`;
+    btns = `<button class="btn pri grow" data-act="wantBuy">Купил</button><button class="btn sm" data-act="close">Передумал</button>`;
+  } else if (a <= d.lifeNow) {
+    const dd = isFinite(days) ? `${days.toFixed(days < 10 ? 1 : 0).replace('.', ',')} ${plural(Math.ceil(days), 'день', 'дня', 'дней')}` : 'весь';
+    text = `${esc(name || 'Покупка')} за ${fmt(a)} = <b>${dd}</b> твоего лимита.<br>После покупки до зарплаты останется ${fmt(newDaily)} в день вместо ${fmt(d.daily)}.<br><br>Давай подождём 48 часов. Если желание останется, купишь без вины. Обычно оно проходит само.`;
+    btns = `<button class="btn pri grow" data-act="wantWait">Подожду 48 ч</button><button class="btn sm" data-act="wantBuy">Всё-таки купил</button>`;
+  } else {
+    text = `Сейчас в «Жизни» ${fmt(d.lifeNow)}. На ${fmt(a)} пришлось бы брать из аренды или подушки.<br><br>Положу в список желаний, вернёмся к этому после следующего прихода денег.`;
+    btns = `<button class="btn pri grow" data-act="wantWait">В список желаний</button><button class="btn sm" data-act="close">Отмена</button>`;
+  }
+  openSheet(`<h3>🤔 ${esc(name || 'Хочу')} · ${fmt(a)}</h3><div class="note" style="background:var(--bg2);display:block">${text}</div><div class="row">${btns}</div>`);
+}
+
+function sheetPay(){
+  const items = mandatory();
+  const b = balances().env;
+  openSheet(`
+    <h3>🔑 Обязательные платежи</h3>
+    <p class="muted" style="margin-top:-6px">В конверте «Обязательное»: ${fmt(b.m)}</p>
+    ${items.length ? items.map(x => `
+      <div class="card" style="background:var(--bg2)">
+        <div class="row"><div class="grow"><b>${emo(x.name)} ${x.name}</b><div class="muted" style="font-size:13px">${x.done ? '✅ оплачено ' + fmt(x.paid) : 'до ' + ddmm(x.due)}</div></div>
+        ${x.done ? '' : `<input id="pay_${x.id}" inputmode="decimal" value="${x.amount}" style="width:100px;text-align:right"><button class="btn sm" data-act="doPay" data-id="${x.id}">Оплатил</button>`}</div>
+      </div>`).join('') : '<p class="muted">Платежи не заданы. Укажи их в настройках.</p>'}
+    <div class="field"><label>Откуда платишь</label><div class="seg" id="fAc">${accSeg('card')}</div></div>`);
+  sheetState = { kind:'pay', ac:'card' };
+}
+
+function sheetCheck(){
+  const {acc} = balances();
+  sheetState = { kind:'check' };
+  openSheet(`
+    <h3>🧾 Сверка</h3>
+    <p class="muted" style="margin-top:-6px">Посчитай, сколько реально есть. Разницу я запишу как «неучтённое», без упрёков. Пропущенные записи так и ловятся.</p>
+    <div class="field"><label>💵 Наличные (по записям ${fmt(acc.cash)})</label><input id="fCash" inputmode="decimal" placeholder="${r0(acc.cash)}"></div>
+    <div class="field"><label>💳 Карта (по записям ${fmt(acc.card)})</label><input id="fCard" inputmode="decimal" placeholder="${r0(acc.card)}"></div>
+    <button class="btn pri" style="width:100%" data-act="doCheck">Свести</button>`);
+}
+
+function sheetXfer(){
+  sheetState = { kind:'xfer', f:'card' };
+  openSheet(`
+    <h3>⇄ Снял / положил</h3>
+    <div class="field"><input class="amt" id="fAmt" inputmode="decimal" placeholder="0"></div>
+    <div class="field"><div class="seg" id="fDir"><button data-f="card" class="on">Снял с карты → нал</button><button data-f="cash">Нал → на карту</button></div></div>
+    <button class="btn pri" style="width:100%" data-act="doXfer">Записать</button>`);
+}
+
+/* ---------- Быстрая строка: «40 такси», «+500 предоплата», «хочу 300 кроссовки» ---------- */
+function quick(str){
+  str = str.trim();
+  const m = str.match(/(\d+(?:[.,]\d+)?)/);
+  if (!m) { toast('Напиши сумму, например «40 такси»'); return; }
+  const a = num(m[1]);
+  let word = str.replace(m[0], '').replace(/^\s*[+\-−]\s*/, '').replace(/\s*(zł|zl|злотых|зл)\b/i, '').trim();
+  const low = word.toLowerCase();
+  if (/^хочу/.test(low)) { wantVerdict(a, cap(word.replace(/^хочу\s*/i, ''))); return; }
+  const incomeWord = /^(пришл|получил|зп|зарплат|предопл|задат|аванс|чаев|гонорар|выступ|плюс)/;
+  if (/^\s*\+/.test(str) || incomeWord.test(low)) {
+    let type = 'other';
+    if (/зарплат|^зп/.test(low)) type = 'salary';
+    else if (/предопл|задат|аванс/.test(low)) type = 'prepay';
+    else if (/чаев/.test(low)) type = 'tips';
+    else if (/гонорар|выступ/.test(low)) type = 'fee';
+    addIncome(a, type, type === 'salary' ? 'card' : 'cash', word);
+    return;
+  }
+  let cat = 'Другое';
+  if (word) {
+    const found = Object.keys(S.cats).find(c => c.toLowerCase() === low) ||
+                  Object.keys(S.cats).find(c => low.startsWith(c.toLowerCase().slice(0, 4)) && c.length >= 4);
+    cat = found || cap(word);
+  }
+  const ac = (S.cats[cat] && S.cats[cat].ac) || 'cash';
+  addExpense(a, cat, ac);
+}
+
+/* ---------- Экраны ---------- */
+function viewSetup(){
+  const s = S.set;
+  return `
+  <div class="card"><h2 style="margin:4px 0 6px">Кошелёк</h2>
+  <p class="muted" style="margin:0 0 14px">Три минуты настройки. Всё можно поменять потом в «Настройках». Данные хранятся в твоём Telegram, их видишь только ты.</p>
+  <div class="field"><label>Зарплата на руки, zł</label><div class="two"><input id="sSalary" inputmode="decimal" placeholder="например 6000" value="${s.salary || ''}"><input id="sSalaryDay" inputmode="numeric" placeholder="день" value="${s.salaryDay || ''}"></div></div>
+  <div class="field"><label>Аренда со всеми оплатами, zł · день оплаты</label><div class="two"><input id="sRent" inputmode="decimal" placeholder="например 3000" value="${s.rent || ''}"><input id="sRentDay" inputmode="numeric" placeholder="день" value="${s.rentDay || ''}"></div></div>
+  <div class="field"><label>Жене (откладывать максимум), zł · день</label><div class="two"><input id="sWife" inputmode="decimal" placeholder="например 1500" value="${s.wife || ''}"><input id="sWifeDay" inputmode="numeric" placeholder="день" value="${s.wifeDay || ''}"></div></div>
+  <div class="field"><label>Gigly: сколько максимум в месяц, zł</label><input id="sGigly" inputmode="decimal" placeholder="например 500" value="${s.giglyCap || ''}"></div>
+  <div class="field"><label>Сколько у тебя сейчас: наличные · карта</label><div class="two" style="grid-template-columns:1fr 1fr"><input id="sCash" inputmode="decimal" placeholder="0"><input id="sCard" inputmode="decimal" placeholder="0"></div></div>
+  <button class="btn pri" style="width:100%" data-act="saveSetup">Готово</button></div>`;
+}
+
+function viewHome(){
+  const d = today(), {env, acc} = balances(), mand = mandatory();
+  const notes = [];
+  const now = sod(new Date());
+  mand.forEach(x => {
+    const days = Math.round((sod(x.due) - now) / DAY);
+    if (x.done && days >= 0 && days <= 5) notes.push(`<div class="note"><span class="ic">${emo(x.name)}</span><div class="grow">${x.name}: ${fmt(x.amount)} через ${days} ${plural(days, 'день', 'дня', 'дней')}, в день зарплаты. Отложу из неё первым делом.</div></div>`);
+    if (!x.done && days <= 5) {
+      const ready = Math.min(env.m, x.amount);
+      notes.push(`<div class="note"><span class="ic">${emo(x.name)}</span><div class="grow">${x.name}: ${fmt(x.amount)} ${days < 0 ? '<b>просрочено на ' + (-days) + ' дн.</b>' : days === 0 ? '<b>сегодня</b>' : 'через ' + days + ' ' + plural(days, 'день', 'дня', 'дней')}. В конверте ${fmt(ready)}${ready >= x.amount ? ' ✅' : ', не хватает ' + fmt(x.amount - ready)}.</div><button class="btn sm" data-act="pay">Оплатил</button></div>`);
+    }
+  });
+  const ready = S.wish.items.filter(w => Date.now() - w.t >= 48*3600e3);
+  ready.forEach(w => notes.push(`<div class="note"><span class="ic">⏳</span><div class="grow">Прошло 2 дня. Всё ещё хочешь <b>${esc(w.name || 'покупку')}</b> за ${fmt(w.a)}?</div><div class="row" style="flex-direction:column;gap:4px"><button class="btn sm" data-act="wishBuy" data-id="${w.i}">Купил</button><button class="btn sm" data-act="wishSkip" data-id="${w.i}">Не надо</button></div></div>`));
+  const dow = new Date().getDay();
+  if ((dow === 5 || dow === 6) && d.week > 0) notes.push(`<div class="note"><span class="ic">🎉</span><div>На выходные у тебя ${fmt(d.week)}${mand.every(x => x.done) || env.m >= mand.filter(x => !x.done).reduce((s, x) => s + x.amount, 0) ? ', обязательное уже закрыто' : ''}.</div></div>`);
+
+  const mustNeed = mand.filter(x => !x.done).reduce((s, x) => s + x.amount, 0);
+  const gUsed = giglyThisCycle();
+  const quickCats = topCats().slice(0, 8);
+  const waiting = S.wish.items.length - ready.length;
+
+  return `
+  <div class="card hero">
+    <div class="lbl">Можно сегодня</div>
+    <div class="big ${d.left < 0 ? '' : ''}">${d.left < 0 ? '0 zł' : fmt(d.left)}</div>
+    <div class="sub">${d.left < 0 ? `сегодня сверх на ${fmt(-d.left)} · завтра лимит пересчитается<br>` : ''}до воскресенья ${fmt(d.week)} · до зарплаты ${d.daysLeft} ${plural(d.daysLeft, 'день', 'дня', 'дней')} по ${fmt(d.daily)}</div>
+  </div>
+  ${notes.join('')}
+  <form class="quick" id="quickForm"><input id="quickIn" placeholder="40 такси · +500 предоплата · хочу 300 кроссовки" autocomplete="off" enterkeyhint="done"><button class="btn pri" style="padding:0 16px">↵</button></form>
+  <div class="acts">
+    <button class="btn" data-act="out"><b>➖</b>Потратил</button>
+    <button class="btn" data-act="in"><b>➕</b>Пришло</button>
+    <button class="btn" data-act="want"><b>🤔</b>Хочу${waiting ? ` (${waiting})` : ''}</button>
+  </div>
+  <div class="card"><div class="h">Частые траты · нажми</div><div class="chips">${quickCats.map(c => `<button class="chip" data-act="outCat" data-cat="${esc(c)}">${emo(c)} ${esc(c)}${S.cats[c].last ? ' ' + r0(S.cats[c].last) : ''}</button>`).join('')}</div></div>
+  <div class="card"><div class="h">Конверты</div><div class="env">
+    <div><small>🔑 Обязательное</small><b>${fmt(env.m)}</b><small>${mustNeed ? 'нужно ' + fmt(mustNeed) : 'всё оплачено ✅'}</small>${mustNeed ? `<div class="bar"><i style="width:${Math.min(100, env.m / mustNeed * 100)}%"></i></div>` : ''}</div>
+    <div><small>🌿 Жизнь</small><b>${fmt(env.l)}</b><small>на еду, такси, всё своё</small></div>
+    <div><small>🛟 Подушка</small><b>${fmt(env.c)}</b><small>цель ${fmt(S.set.cushionGoal)}</small><div class="bar"><i style="width:${Math.min(100, Math.max(0, env.c) / (S.set.cushionGoal || 1) * 100)}%"></i></div></div>
+    <div><small>🚀 Gigly</small><b>${fmt(env.g)}</b><small>${S.set.giglyCap ? `в этом месяце ${fmt(gUsed)} из ${fmt(S.set.giglyCap)}` : 'лимит не задан'}</small></div>
+  </div>
+  <div class="row" style="margin-top:8px"><button class="btn sm grow" data-act="pay">🔑 Оплатить</button><button class="btn sm grow" data-act="move">↔ Переложить</button></div></div>
+  <div class="card"><div class="h">Где деньги физически</div>
+    <div class="kv"><span>💵 Наличные</span><b>${fmt(acc.cash)}</b></div>
+    <div class="kv"><span>💳 Карта</span><b>${fmt(acc.card)}</b></div>
+    <div class="row" style="margin-top:6px"><button class="btn sm grow" data-act="check">🧾 Сверка</button><button class="btn sm grow" data-act="xfer">⇄ Снял / положил</button></div>
+    <p class="muted" style="font-size:13px;margin:8px 0 0">Совет: наличные «Обязательного» держи дома в конверте, в кошельке только «Жизнь».</p>
+  </div>`;
+}
+
+function txLine(t){
+  let icon, title, amount, meta = [];
+  if (t.k === 'in') { icon = '➕'; title = IN_NAME[t.c] || 'Пришло'; amount = `<b class="plus">+${fmt(t.a)}</b>`; meta.push(splitText(t.s)); if (t.n) meta.unshift(esc(t.n)); }
+  else if (t.k === 'out') { icon = emo(t.c); title = esc(t.c); amount = `<b>−${fmt(t.a)}</b>`; if (!t.s.l || Object.keys(t.s).length > 1) meta.push('из ' + Object.keys(t.s).map(e => ENV[e]).join(' + ')); }
+  else if (t.k === 'pay') { icon = t.c === 'rent' ? '🔑' : '👨‍👧'; title = t.c === 'rent' ? 'Аренда' : 'Жене'; amount = `<b>−${fmt(t.a)}</b>`; }
+  else if (t.k === 'move') { icon = '↔'; title = `${ENV[t.f]} → ${ENV[t.to]}`; amount = fmt(t.a); }
+  else if (t.k === 'xfer') { icon = '⇄'; title = t.f === 'card' ? 'Снял наличные' : 'Положил на карту'; amount = fmt(t.a); }
+  else if (t.k === 'adj') { icon = '❔'; title = 'Сверка: ' + (t.a < 0 ? 'неучтённое' : 'нашлось'); amount = `<b class="${t.a > 0 ? 'plus' : ''}">${t.a > 0 ? '+' : '−'}${fmt(Math.abs(t.a))}</b>`; }
+  if (t.ac) meta.push(t.ac === 'cash' ? 'нал' : 'карта');
+  const time = new Date(t.t).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+  return `<div class="it"><div class="em">${icon}</div><div class="grow"><div>${title}</div><div class="meta">${time} · ${meta.join(' · ')}</div></div>${amount}<button class="del" data-act="delTx" data-id="${t.i}">×</button></div>`;
+}
+
+function viewHist(){
+  if (!S.tx.length) return `<div class="card muted">Пока пусто. Запиши первую трату на главном экране.</div>`;
+  const out = []; let lastDay = '';
+  [...S.tx].reverse().slice(0, 300).forEach(t => {
+    const day = new Date(t.t).toLocaleDateString('ru-RU', {weekday:'short', day:'numeric', month:'long'});
+    if (day !== lastDay) { if (lastDay) out.push('</div>'); out.push(`<div class="day">${day}</div><div class="card list">`); lastDay = day; }
+    out.push(txLine(t));
+  });
+  out.push('</div>');
+  return out.join('');
+}
+
+let statPeriod = 'cycle';
+function viewStat(){
+  const now = Date.now(), {start} = cycle();
+  const periods = { '7':7*DAY, '30':30*DAY, 'cycle':now - +start };
+  const len = Math.max(DAY, periods[statPeriod]);
+  const from = statPeriod === 'cycle' ? +start : sod(now - len + DAY).getTime();
+  const prevFrom = from - len;
+  const firstT = S.tx.length ? S.tx[0].t : now;
+  const realFrom = Math.max(from, +sod(Math.min(S.set.since || firstT, firstT)));
+  const days = Math.max(1, Math.ceil((now - realFrom) / DAY));
+  const inP = (t, a, b) => t.t >= a && t.t < b;
+  const cur = S.tx.filter(t => inP(t, from, now + 1)), prev = S.tx.filter(t => inP(t, prevFrom, from));
+  const outs = cur.filter(t => t.k === 'out');
+  const spent = outs.reduce((a, t) => a + t.a, 0);
+  const lifeSpent = outs.reduce((a, t) => a + (t.s.l || 0), 0);
+  const income = cur.filter(t => t.k === 'in').reduce((a, t) => a + t.a, 0);
+  const cushion = cur.filter(t => t.k === 'in').reduce((a, t) => a + (t.s.c || 0), 0);
+  const unrec = cur.filter(t => t.k === 'adj' && t.a < 0).reduce((a, t) => a - t.a, 0);
+  const byCat = {}; outs.forEach(t => byCat[t.c] = (byCat[t.c] || 0) + t.a);
+  const prevCat = {}; prev.filter(t => t.k === 'out').forEach(t => prevCat[t.c] = (prevCat[t.c] || 0) + t.a);
+  const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  const maxCat = cats.length ? cats[0][1] : 1;
+
+  const wd = [0,0,0,0,0,0,0], wdN = [0,0,0,0,0,0,0];
+  for (let d = sod(realFrom); d <= now; d = new Date(+d + DAY)) wdN[(d.getDay() + 6) % 7]++;
+  outs.forEach(t => wd[(new Date(t.t).getDay() + 6) % 7] += t.a);
+  const wdAvg = wd.map((v, i) => wdN[i] ? v / wdN[i] : 0);
+  const wdMax = Math.max(1, ...wdAvg);
+
+  const d = today();
+  const avg = lifeSpent / days;
+  const small = outs.filter(t => t.a <= 30);
+  const smallSum = small.reduce((a, t) => a + t.a, 0);
+  const skipped = S.wish.skipped.filter(w => w.t >= from).reduce((a, w) => a + w.a, 0);
+
+  const ins = [];
+  if (!outs.length) ins.push('За этот период трат ещё нет. Записывай, и через пару дней здесь появятся выводы.');
+  else {
+    if (avg > d.daily && d.daily > 0) {
+      const runOut = d.lifeNow > 0 && avg > 0 ? new Date(now + d.lifeNow / avg * DAY) : new Date();
+      ins.push(`В среднем ${fmt(avg)} в день из «Жизни» при лимите ${fmt(d.daily)}. В таком темпе денег хватит до ${ddmm(runOut)}, зарплата ${ddmm(d.next)}. Срезать ${fmt(avg - d.daily)} в день, и дотянешь.`);
+    } else ins.push(`Темп в норме: в среднем ${fmt(avg)} в день из «Жизни», лимит ${fmt(d.daily)} 👍`);
+    if (cats.length > 1 && cats[0][1] / spent > 0.35) ins.push(`${emo(cats[0][0])} ${esc(cats[0][0])} — ${r0(cats[0][1] / spent * 100)}% всех трат.`);
+    if (small.length >= 5) ins.push(`Мелочь до 30 zł: ${small.length} раз, вместе ${fmt(smallSum)}. По одной незаметно, вместе заметно.`);
+    const wkEnd = (wdAvg[5] + wdAvg[6]) / 2, wkDay = wdAvg.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
+    if (wkDay > 0 && wkEnd / wkDay >= 1.5) ins.push(`В выходные тратишь в ${(wkEnd / wkDay).toFixed(1).replace('.', ',')} раза больше, чем в будни. В пятницу на главном экране будет подсказка, сколько можно на выходные.`);
+    const grow = cats.filter(([c, v]) => prevCat[c] && v > prevCat[c] * 1.4 && v - prevCat[c] > 50)[0];
+    if (grow && statPeriod !== 'cycle') ins.push(`${esc(grow[0])}: ${fmt(grow[1])}, в прошлом периоде было ${fmt(prevCat[grow[0]])}.`);
+  }
+  if (skipped > 0) ins.push(`Удержался от покупок на ${fmt(skipped)} 💪`);
+  if (unrec > 0) ins.push(`При сверке не нашлось ${fmt(unrec)}. Это не страшно, просто часть трат прошла мимо записей.`);
+  const cEnv = balances().env.c;
+  if (cEnv < S.set.cushionGoal) ins.push(`Подушка ${fmt(cEnv)} из ${fmt(S.set.cushionGoal)}. Она копится сама: ${S.set.cushionPct}% с каждой предоплаты, гонорара и чаевых.`);
+  else ins.push(`Подушка ${fmt(cEnv)}: первая цель достигнута 🛟`);
+
+  return `
+  <div class="seg" style="margin-bottom:10px;background:var(--bg)">${[['7','7 дней'],['30','30 дней'],['cycle','С зарплаты']].map(([k, v]) => `<button data-act="period" data-p="${k}" class="${k === statPeriod ? 'on' : ''}">${v}</button>`).join('')}</div>
+  <div class="card"><div class="stats">
+    <div><small>Пришло</small><b class="plus">${fmt(income)}</b></div>
+    <div><small>Потрачено</small><b>${fmt(spent)}</b></div>
+    <div><small>В подушку</small><b>${fmt(cushion)}</b></div>
+  </div></div>
+  <div class="card"><div class="h">Выводы</div>${ins.map(x => `<div class="kv" style="justify-content:flex-start;gap:8px"><span>•</span><span>${x}</span></div>`).join('')}</div>
+  ${cats.length ? `<div class="card"><div class="h">Куда ушло</div>${cats.map(([c, v]) => `
+    <div class="cat"><div class="row"><span class="grow">${emo(c)} ${esc(c)}</span><span class="muted">${r0(v / spent * 100)}%</span>&nbsp;<b>${fmt(v)}</b></div><div class="bar"><i style="width:${v / maxCat * 100}%"></i></div></div>`).join('')}</div>` : ''}
+  ${outs.length ? `<div class="card"><div class="h">Средний расход по дням недели</div><div class="wd">${['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map((n, i) => `<div><span>${wdAvg[i] ? r0(wdAvg[i]) : ''}</span><i style="height:${wdAvg[i] / wdMax * 60}px"></i>${n}</div>`).join('')}</div></div>` : ''}`;
+}
+
+function viewSet(){
+  const s = S.set;
+  const cats = topCats();
+  return `
+  <div class="card"><div class="h">Деньги</div>
+    <div class="field"><label>Зарплата на руки · день</label><div class="two"><input id="sSalary" inputmode="decimal" value="${s.salary}"><input id="sSalaryDay" inputmode="numeric" value="${s.salaryDay}"></div></div>
+    <div class="field"><label>Аренда · день</label><div class="two"><input id="sRent" inputmode="decimal" value="${s.rent}"><input id="sRentDay" inputmode="numeric" value="${s.rentDay}"></div></div>
+    <div class="field"><label>Жене (откладывать) · день</label><div class="two"><input id="sWife" inputmode="decimal" value="${s.wife}"><input id="sWifeDay" inputmode="numeric" value="${s.wifeDay}"></div></div>
+    <div class="field"><label>Gigly, максимум в месяц</label><input id="sGigly" inputmode="decimal" value="${s.giglyCap}"></div>
+    <div class="field"><label>% в подушку с нерегулярных доходов · цель подушки</label><div class="two" style="grid-template-columns:1fr 1fr"><input id="sCushPct" inputmode="numeric" value="${s.cushionPct}"><input id="sCushGoal" inputmode="decimal" value="${s.cushionGoal}"></div></div>
+    <button class="btn pri" style="width:100%" data-act="saveSet">Сохранить</button>
+  </div>
+  <div class="card"><div class="h">Категории · нажми, чтобы удалить</div><div class="chips">${cats.map(c => `<button class="chip" data-act="delCat" data-cat="${esc(c)}">${emo(c)} ${esc(c)} <span class="muted">${S.cats[c].n}</span></button>`).join('')}</div>
+    <p class="muted" style="font-size:13px;margin:10px 0 0">Новые категории появляются сами, когда пишешь «35 шаурма». Чем чаще трата, тем выше её кнопка.</p></div>
+  <div class="card"><div class="h">Данные</div>
+    <p class="muted" style="font-size:14px;margin:0 0 10px">${hasCloud ? 'Хранятся в облаке Telegram, привязаны к твоему аккаунту. Сервера нет, сторонним сервисам ничего не отправляется.' : 'Сейчас открыто вне Telegram: данные только в этом браузере.'} Записей: ${S.tx.length}.</p>
+    <div class="row"><button class="btn sm grow" data-act="export">Скопировать всё (JSON)</button><button class="btn sm grow" data-act="reset" style="color:#d33">Стереть всё</button></div>
+  </div>`;
+}
+
+function render(){
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  $('#nav').style.display = S.set.setup ? '' : 'none';
+  const v = !S.set.setup ? viewSetup() : tab === 'home' ? viewHome() : tab === 'hist' ? viewHist() : tab === 'stat' ? viewStat() : viewSet();
+  $('#app').innerHTML = v;
+  const qf = $('#quickForm');
+  if (qf) qf.onsubmit = e => { e.preventDefault(); const v = $('#quickIn').value; if (v.trim()) { quick(v); const q = $('#quickIn'); if (q) q.value = ''; } };
+}
+
+/* ---------- Обработчики ---------- */
+function readSettings(){
+  const g = id => { const el = $('#' + id); return el ? num(el.value) : 0; };
+  const day = id => Math.min(31, Math.max(1, r0(g(id)) || 1));
+  S.set.salary = g('sSalary'); S.set.salaryDay = day('sSalaryDay');
+  S.set.rent = g('sRent'); S.set.rentDay = day('sRentDay');
+  S.set.wife = g('sWife'); S.set.wifeDay = day('sWifeDay');
+  S.set.giglyCap = g('sGigly');
+  if ($('#sCushPct')) { S.set.cushionPct = Math.min(90, Math.max(0, r0(g('sCushPct')))); S.set.cushionGoal = g('sCushGoal') || 500; }
+}
+
+function confirmAsk(text){
+  return new Promise(res => { if (inTG && tg.showConfirm) tg.showConfirm(text, ok => res(ok)); else res(window.confirm(text)); });
+}
+
+document.addEventListener('click', async e => {
+  const navB = e.target.closest('#nav button');
+  if (navB) { tab = navB.dataset.tab; render(); window.scrollTo(0, 0); return; }
+
+  // Переключатели внутри шторки
+  const chipCat = e.target.closest('#fCats .chip');
+  if (chipCat) { document.querySelectorAll('#fCats .chip').forEach(c => c.classList.remove('on')); chipCat.classList.add('on'); sheetState.cat = chipCat.dataset.cat; $('#fNewCat').value = '';
+    const c = S.cats[sheetState.cat]; if (c && c.last && !$('#fAmt').value) $('#fAmt').value = c.last;
+    if (c && c.ac) { sheetState.ac = c.ac; $('#fAc').innerHTML = accSeg(c.ac); }
+    if (sheetState.cat === 'Gigly') { sheetState.env = 'g'; document.querySelectorAll('#fEnv button').forEach(b => b.classList.toggle('on', b.dataset.env === 'g')); }
+    return; }
+  const typeB = e.target.closest('#fType .chip');
+  if (typeB) { document.querySelectorAll('#fType .chip').forEach(c => c.classList.remove('on')); typeB.classList.add('on'); sheetState.type = typeB.dataset.type; preview(); return; }
+  const accB = e.target.closest('#fAc button');
+  if (accB) { sheetState.ac = accB.dataset.ac; $('#fAc').innerHTML = accSeg(sheetState.ac); return; }
+  const envB = e.target.closest('#fEnv button');
+  if (envB) { sheetState.env = envB.dataset.env; document.querySelectorAll('#fEnv button').forEach(b => b.classList.toggle('on', b === envB)); return; }
+  const dirB = e.target.closest('#fDir button');
+  if (dirB) { sheetState.f = dirB.dataset.f; document.querySelectorAll('#fDir button').forEach(b => b.classList.toggle('on', b === dirB)); return; }
+  const moveB = e.target.closest('[data-mv]');
+  if (moveB) { const [k, v] = moveB.dataset.mv.split(':'); sheetState[k] = v; document.querySelectorAll(`[data-mv^="${k}:"]`).forEach(b => b.classList.toggle('on', b === moveB)); return; }
+
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  const act = b.dataset.act;
+  const amt = () => num(($('#fAmt') || {}).value);
+
+  switch (act) {
+    case 'close': closeSheet(); break;
+    case 'out': sheetExpense(); break;
+    case 'outCat': sheetExpense(b.dataset.cat); break;
+    case 'in': sheetIncome(); break;
+    case 'want': {
+      if (S.wish.items.length) {
+        sheetWant();
+        $('#sheetBox').insertAdjacentHTML('beforeend', `<div class="h" style="margin-top:16px">Ждут своего часа</div><div class="list">${S.wish.items.map(w => {
+          const h = Math.max(0, 48 - (Date.now() - w.t) / 3600e3);
+          return `<div class="it"><div class="em">⏳</div><div class="grow">${esc(w.name || 'Покупка')}<div class="meta">${h > 0 ? 'ещё ' + Math.ceil(h) + ' ч' : 'можно решать'}</div></div><b>${fmt(w.a)}</b><button class="del" data-act="wishSkip" data-id="${w.i}">×</button></div>`; }).join('')}</div>`);
+      } else sheetWant();
+      break;
+    }
+    case 'pay': sheetPay(); break;
+    case 'check': sheetCheck(); break;
+    case 'xfer': sheetXfer(); break;
+    case 'move': {
+      sheetState = { kind:'move', f:'c', to:'l' };
+      const env = balances().env;
+      const seg = k => Object.keys(ENV).map(x => `<button data-mv="${k}:${x}" class="${sheetState[k] === x ? 'on' : ''}">${ENV[x]}</button>`).join('');
+      openSheet(`<h3>↔ Переложить между конвертами</h3>
+        <div class="field"><input class="amt" id="fAmt" inputmode="decimal" placeholder="0"></div>
+        <div class="field"><label>Откуда (Подушка ${fmt(env.c)}, Gigly ${fmt(env.g)}, Жизнь ${fmt(env.l)})</label><div class="seg">${seg('f')}</div></div>
+        <div class="field"><label>Куда</label><div class="seg">${seg('to')}</div></div>
+        <button class="btn pri" style="width:100%" data-act="doMove">Переложить</button>`);
+      break;
+    }
+    case 'saveOut': {
+      const a = amt(); if (a <= 0) { toast('Введи сумму'); return; }
+      const nc = $('#fNewCat').value.trim();
+      const cat = nc ? cap(nc) : (sheetState.cat || 'Другое');
+      closeSheet(); addExpense(a, cat, sheetState.ac, sheetState.env); break;
+    }
+    case 'saveIn': {
+      const a = amt(); if (a <= 0) { toast('Введи сумму'); return; }
+      const note = $('#fNote').value.trim(), st = {...sheetState};
+      closeSheet(); addIncome(a, st.type, st.ac, note); break;
+    }
+    case 'checkWant': {
+      const a = amt(); if (a <= 0) { toast('Введи сумму'); return; }
+      wantVerdict(a, cap($('#fName').value.trim())); break;
+    }
+    case 'wantBuy': {
+      const {a, name} = sheetState; closeSheet();
+      const cat = name && S.cats[name] ? name : 'Другое';
+      addExpense(a, cat, (S.cats[cat] && S.cats[cat].ac) || 'cash'); break;
+    }
+    case 'wantWait': {
+      S.wish.items.push({ i:uid(), t:Date.now(), a:sheetState.a, name:sheetState.name });
+      save(); closeSheet(); haptic();
+      toast('Записал. Через 48 часов спрошу ещё раз, на главном экране'); render(); break;
+    }
+    case 'wishBuy': {
+      const w = S.wish.items.find(x => x.i === b.dataset.id); if (!w) return;
+      S.wish.items = S.wish.items.filter(x => x !== w);
+      addExpense(w.a, 'Другое', 'cash'); break;
+    }
+    case 'wishSkip': {
+      const w = S.wish.items.find(x => x.i === b.dataset.id); if (!w) return;
+      S.wish.items = S.wish.items.filter(x => x !== w);
+      S.wish.skipped.push({ a:w.a, t:Date.now() });
+      save(); haptic(); closeSheet();
+      toast(`Сэкономил ${fmt(w.a)} 💪`); render(); break;
+    }
+    case 'doPay': {
+      const a = num($('#pay_' + b.dataset.id).value); if (a <= 0) return;
+      const ac = sheetState.ac || 'card'; closeSheet(); addPay(b.dataset.id, a, ac); break;
+    }
+    case 'doCheck': {
+      const {acc} = balances(), ids = [];
+      [['cash', '#fCash'], ['card', '#fCard']].forEach(([k, sel]) => {
+        const v = $(sel).value.trim(); if (v === '') return;
+        const diff = r0(num(v) - acc[k]);
+        if (diff !== 0) { const t = { i:uid(), t:Date.now(), k:'adj', a:diff, ac:k }; S.tx.push(t); ids.push(t.i); }
+      });
+      closeSheet();
+      if (ids.length) { save(); haptic(); toast('Свёл. Разница записана в «Жизнь»', ids); } else toast('Всё сходится 👌');
+      render(); break;
+    }
+    case 'doXfer': {
+      const a = amt(); if (a <= 0) return;
+      const t = { i:uid(), t:Date.now(), k:'xfer', a, f:sheetState.f, to:sheetState.f === 'card' ? 'cash' : 'card' };
+      S.tx.push(t); save(); closeSheet(); haptic(); toast('Записал', [t.i]); render(); break;
+    }
+    case 'doMove': {
+      const a = amt(); if (a <= 0 || sheetState.f === sheetState.to) { toast('Выбери разные конверты и сумму'); return; }
+      const t = { i:uid(), t:Date.now(), k:'move', a, f:sheetState.f, to:sheetState.to };
+      S.tx.push(t); save(); closeSheet(); haptic(); toast(`${ENV[t.f]} → ${ENV[t.to]}: ${fmt(a)}`, [t.i]); render(); break;
+    }
+    case 'delTx': {
+      if (await confirmAsk('Удалить эту запись?')) { S.tx = S.tx.filter(t => t.i !== b.dataset.id); save(); render(); }
+      break;
+    }
+    case 'period': statPeriod = b.dataset.p; render(); break;
+    case 'saveSetup': {
+      readSettings();
+      if (!S.set.salary && !S.set.rent) { toast('Заполни хотя бы зарплату и аренду'); return; }
+      S.set.setup = true; S.set.since = Date.now();
+      const cash = num($('#sCash').value), card = num($('#sCard').value);
+      if (cash > 0) S.tx.push({ i:uid(), t:Date.now(), k:'in', a:cash, c:'start', ac:'cash', s:split(cash, 'start') });
+      if (card > 0) S.tx.push({ i:uid(), t:Date.now(), k:'in', a:card, c:'start', ac:'card', s:split(card, 'start') });
+      save(); haptic(); render(); break;
+    }
+    case 'saveSet': readSettings(); save(); haptic(); toast('Сохранил'); render(); break;
+    case 'delCat': {
+      const c = b.dataset.cat;
+      if (await confirmAsk(`Убрать категорию «${c}» из кнопок? Старые записи останутся.`)) { delete S.cats[c]; save(); render(); }
+      break;
+    }
+    case 'export': {
+      const data = JSON.stringify({ set:S.set, cats:S.cats, wish:S.wish, tx:S.tx });
+      try { await navigator.clipboard.writeText(data); toast('Скопировал в буфер'); } catch(err) { toast('Не получилось скопировать'); }
+      break;
+    }
+    case 'reset': {
+      if (await confirmAsk('Стереть все записи и настройки? Это нельзя отменить.')) {
+        S = { set:{...DEF_SET}, cats:{}, tx:[], wish:{items:[], skipped:[]}, txParts:S.txParts };
+        DEF_CATS.forEach(c => S.cats[c] = { n:0, last:0, ac:'cash' });
+        await save(); tab = 'home'; render();
+      }
+      break;
+    }
+  }
+});
+
+function preview(){
+  const p = $('#fPreview'); if (!p) return;
+  const a = num($('#fAmt').value);
+  p.textContent = a > 0 ? 'Разложу так: ' + splitText(split(a, sheetState.type)) : 'Введи сумму, покажу, как разложу';
+}
+document.addEventListener('input', e => { if (e.target.id === 'fAmt' && sheetState.kind === 'in') preview(); });
+
+load().then(render);
+</script>
+</body>
+</html>
