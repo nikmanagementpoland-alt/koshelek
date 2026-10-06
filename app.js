@@ -139,7 +139,20 @@ function envEmoji(k){
 const emo = c => EMO[c] || (c ? c[0].toUpperCase() : '•');
 
 /* ================= Финансовая логика ================= */
+// Зарплата раз в месяц (число) или каждые 2 недели (от известной даты выплаты)
+const is2w = () => S.set.payFreq === '2w' && S.set.payAnchor;
+// Считаем календарными днями, а не миллисекундами: иначе при переводе часов дата съезжает на день
+const addDays = (d, n) => { const x = new Date(d); return new Date(x.getFullYear(), x.getMonth(), x.getDate() + n); };
+const dayDiff = (a, b) => Math.round((sod(b) - sod(a)) / DAY);
+function nextPayday(d){ return is2w() ? addDays(d, 14) : clampDay(d.getFullYear(), d.getMonth() + 1, S.set.salaryDay); }
+function paydayOnOrBefore(d){
+  if (is2w()) { const k = Math.floor(dayDiff(S.set.payAnchor, d) / 14); return addDays(S.set.payAnchor, k * 14); }
+  let p = clampDay(d.getFullYear(), d.getMonth(), S.set.salaryDay); if (p > d) p = prevMonth(p, S.set.salaryDay); return p;
+}
+const monthlyIncome = () => is2w() ? S.set.salary * 26 / 12 : S.set.salary;
+function payText(){ return is2w() ? `${fmt(S.set.salary)} каждые 2 недели (${wday(S.set.payAnchor)})` : `${fmt(S.set.salary)} каждое ${S.set.salaryDay}-е число`; }
 function cycle(now = new Date()){
+  if (is2w()) { const start = paydayOnOrBefore(now); return { start, next:addDays(start, 14) }; }
   const d = S.set.salaryDay || 1, y = now.getFullYear(), m = now.getMonth();
   const thisM = clampDay(y, m, d);
   return sod(now) >= thisM ? { start:thisM, next:clampDay(y, m + 1, d) } : { start:clampDay(y, m - 1, d), next:thisM };
@@ -147,7 +160,7 @@ function cycle(now = new Date()){
 // Горизонт: до следующей зарплаты; если зарплаты нет, 30 дней вперёд
 function horizon(){
   if (S.set.salary > 0) return cycle();
-  const n = sod(new Date()); return { start:n, next:new Date(+n + 30 * DAY) };
+  const n = sod(new Date()); return { start:n, next:addDays(n, 30) };
 }
 
 function balances(){
@@ -209,10 +222,14 @@ function billStatus(){
     const perDay = L > 0 ? Math.ceil((need - behind) / L) : 0;
     const covered = !!nextSalary && due >= nextSalary; // этот срок закроет следующая зарплата
     let payday = null; // зарплата прямо перед сроком
-    if (covered) { payday = clampDay(due.getFullYear(), due.getMonth(), S.set.salaryDay); if (payday > due) payday = prevMonth(payday, S.set.salaryDay); }
+    if (covered) payday = paydayOnOrBefore(due);
+    // Сколько выплат осталось до срока: делим платёж на них поровну
+    let pays = 0;
+    if (covered) for (let p = nextSalary; p <= due && pays < 12; p = nextPayday(p)) pays++;
+    const perPay = covered && pays ? Math.ceil(need / pays) : 0;
     const stash = covered ? 0 : Math.ceil(clampNeed(reqAt(L - 1) - saved)); // положить сегодня, чтобы идти по плану
     const reserve = () => covered ? 0 : need;                                  // занято из наличных до срока
-    return { ...b, due, paid, toPay, saved, need, remaining:need, days, behind, perDay, stash, reserve, covered, payday };
+    return { ...b, due, paid, toPay, saved, need, remaining:need, days, behind, perDay, stash, reserve, covered, payday, pays, perPay };
   }).sort((a, b) => a.due - b.due);
 }
 
@@ -230,8 +247,11 @@ function split(a, type){
   const s = {};
   let rest = a;
   const D = daysToIncome();
+  const payStart = S.set.salary > 0 ? cycle().start : null;
   for (const b of billStatus().filter(x => x.need > 0)) {
-    const take = Math.min(rest, Math.ceil(b.reserve(D)));
+    let want = b.reserve(D);
+    if (type === 'salary' && b.covered) { let k = 0; for (let p = payStart; p <= b.due && k < 12; p = nextPayday(p)) k++; want = b.need / Math.max(1, k); }
+    const take = Math.min(rest, Math.ceil(want));
     if (take > 0) { s[b.id] = take; rest -= take; }
     if (rest <= 0) break;
   }
@@ -294,7 +314,7 @@ function avgDaily(){
 function typicalDaily(d){
   if (S.set.salary > 0) {
     const bills = S.set.bills.reduce((s, b) => s + (b.amount || 0), 0);
-    return Math.max(0, (S.set.salary - bills - (S.set.giglyCap || 0)) / 30);
+    return Math.max(0, (monthlyIncome() - bills - (S.set.giglyCap || 0)) / 30);
   }
   return d.daily;
 }
@@ -320,8 +340,9 @@ function forecast(N = 45){
   if (S.set.salary > 0) {
     let sd = cycle().next;
     while (+sd < end) {
-      items.push({ d:+sd, label:'💼 Зарплата', amt:S.set.salary - Math.min(S.set.giglyCap || 0, S.set.salary * 0.3), kind:'in' });
-      sd = clampDay(sd.getFullYear(), sd.getMonth() + 1, S.set.salaryDay);
+      const g = Math.min((S.set.giglyCap || 0) / (is2w() ? 2 : 1), S.set.salary * 0.3);
+      items.push({ d:+sd, label:'💼 Зарплата', amt:S.set.salary - g, kind:'in' });
+      sd = nextPayday(sd);
     }
   }
   for (const ev of S.ev) {
@@ -694,7 +715,7 @@ function evSorted(){ return S.ev.filter(ev => evRest(ev) > 0).sort((a, b) => (a.
 function billRowHome(b, d){
   const cls = b.days < 0 && b.toPay > 0 ? 'bad' : b.need > 0 && b.days <= 5 && !b.covered ? 'warn' : b.need === 0 ? 'ok' : '';
   const status = b.toPay === 0 ? 'оплачено ✅'
-    : b.covered ? `закроется из зарплаты ${ddmm(b.payday)}`
+    : b.covered ? (b.pays > 1 ? `с каждой зарплаты по ~${fmt(b.perPay)} (${b.pays} выплаты)` : `закроется из зарплаты ${ddmm(b.payday)}`)
     : b.need === 0 ? 'в конверте всё есть ✅'
     : `в конверте ${fmt(b.saved)} из ${fmt(b.toPay)}`;
   return `<div class="env-item">
@@ -769,7 +790,7 @@ function viewEnv(){
   <div class="card"><div class="h">Платежи <button data-act="newBill">＋ добавить</button></div>
   ${d.bills.length ? d.bills.map(b => `${billRowHome(b, d)}
     <div class="small muted" style="margin:6px 0 2px">${b.toPay === 0 ? `Следующий срок ${ddmm(nextMonth(b.due, b.day))}.`
-      : b.covered ? `Когда придёт зарплата ${ddmm(b.payday)}, сначала отложу на это. Можно копить и заранее.`
+      : b.covered ? (b.pays > 1 ? `До срока ещё ${b.pays} выплаты зарплаты: с каждой откладываю по ~${fmt(b.perPay)}.` : `Когда придёт зарплата ${ddmm(b.payday)}, сначала отложу на это.`)
       : b.need > 0 ? `Отложить ещё ${fmt(b.need)} → по ${fmt(b.perDay)} в день.` : 'Всё собрано, можно платить.'}</div>
     <div class="env-act" style="margin-bottom:6px"><button class="btn sm" data-act="stashBill" data-id="${b.id}">📥 Положить в конверт</button>${b.saved > 0 ? `<button class="btn sm" data-act="takeEnv" data-id="${b.id}">↩ Взять</button>` : ''}<button class="btn sm" data-act="editBill" data-id="${b.id}">✎ Изменить</button></div>`).join('')
     : '<p class="muted">Платежей нет. Нажми «＋ добавить».</p>'}
@@ -969,7 +990,7 @@ function viewSet(){
   const s = S.set;
   return `
   <div class="card"><div class="h">Доход</div>
-    <div class="field"><label>Зарплата на руки · какого числа (0 — нет зарплаты)</label><div class="two"><input id="sSalary" inputmode="decimal" value="${s.salary}"><input id="sSalaryDay" inputmode="numeric" value="${s.salaryDay}"></div></div>
+    <div class="row"><span class="grow">💼 ${s.salary ? payText() : 'не указана'}</span><button class="btn sm" data-act="salary">Изменить</button></div>
   </div>
   <div class="card"><div class="h">Обязательные платежи <button data-act="newBill">＋ добавить</button></div>
     ${billStatus().map(b => `<div class="kv row" data-act="editBill" data-id="${b.id}" style="cursor:pointer;padding:9px 0;border-bottom:1px solid var(--line)"><span class="grow">${billEmoji(b)} ${esc(b.name)}<div class="small muted">${fmt(b.amount)} · следующий срок ${ddmm(b.due)}</div></span><span class="muted">✎</span></div>`).join('') || '<p class="muted small">Платежей нет.</p>'}
@@ -987,7 +1008,7 @@ function viewSet(){
     <div class="row"><button class="btn sm grow" data-act="export">Скопировать копию</button><button class="btn sm grow" data-act="import">Вставить копию</button></div>
     <button class="btn sm full" data-act="reset" style="color:var(--bad);margin-top:8px">Стереть всё</button>
   </div>
-  <p class="muted small" style="text-align:center">Кошелёк v4</p>`;
+  <p class="muted small" style="text-align:center">Кошелёк v5</p>`;
 }
 
 function render(){
@@ -1004,8 +1025,7 @@ function render(){
 /* ================= Обработчики ================= */
 function readSettings(){
   const g = id => { const el = $('#' + id); return el ? num(el.value) : 0; };
-  S.set.salary = g('sSalary');
-  S.set.salaryDay = Math.min(31, Math.max(1, r0(g('sSalaryDay')) || 1));
+  if ($('#sSalary')) { S.set.salary = g('sSalary'); S.set.salaryDay = Math.min(31, Math.max(1, r0(g('sSalaryDay')) || 1)); }
   S.set.giglyCap = g('sGigly');
   if ($('#sCushPct')) { S.set.cushionPct = Math.min(90, Math.max(0, r0(g('sCushPct')))); S.set.cushionGoal = g('sCushGoal') || 500; }
   if ($('#sHasCard')) S.set.hasCard = $('#sHasCard').checked;
@@ -1026,15 +1046,29 @@ document.addEventListener('click', async e => {
     case 'chk4': S.set.chk4 = true; save(); render(); break;
     case 'goHist': tab = 'hist'; render(); window.scrollTo(0, 0); break;
     case 'salary': {
+      const two = S.set.payFreq === '2w';
+      let nm = sod(new Date()); while (nm.getDay() !== 1) nm = new Date(+nm + DAY); // ближайший понедельник
       openSheet(`<h3>💼 Зарплата</h3>
-        <div class="half field"><div><label>Сколько на руки, zł</label><input id="slA" inputmode="decimal" value="${S.set.salary || ''}" placeholder="8000"></div><div><label>Какого числа</label><input id="slD" inputmode="numeric" value="${S.set.salary ? S.set.salaryDay : ''}" placeholder="10"></div></div>
+        <div class="seg field"><button data-act="pick" data-pick="freq" data-v="month" class="${two ? '' : 'on'}">Раз в месяц</button><button data-act="pick" data-pick="freq" data-v="2w" class="${two ? 'on' : ''}">Каждые 2 недели</button></div>
+        <div class="field"><label>Сколько приходит за раз, zł</label><input id="slA" inputmode="decimal" value="${S.set.salary || ''}" placeholder="4000"></div>
+        <div class="field" id="slMonth" style="${two ? 'display:none' : ''}"><label>Какого числа</label><input id="slD" inputmode="numeric" value="${S.set.salary ? S.set.salaryDay : ''}" placeholder="10"></div>
+        <div class="field" id="sl2w" style="${two ? '' : 'display:none'}"><label>Когда ближайшая выплата</label><input id="slN" type="date" value="${isoDate(two ? cycle().next : nm)}">
+          <div class="small muted" style="margin-top:4px">Дальше считаю каждые 14 дней от этой даты.</div></div>
         <button class="btn pri full" data-act="salarySave">Сохранить</button>`);
-      setTimeout(() => $('#slA').focus(), 80); break;
+      break;
     }
     case 'salarySave': {
-      const a = num($('#slA').value), dd = r0(num($('#slD').value));
-      if (a <= 0 || dd < 1 || dd > 31) { toast('Впиши сумму и число от 1 до 31'); return; }
-      S.set.salary = a; S.set.salaryDay = dd; save(); haptic(); closeSheet(); toast(`Зарплата ${fmt(a)} каждое ${dd}-е`); render(); break;
+      const a = num($('#slA').value);
+      const fb = $('#sheetBox [data-pick="freq"].on'), two = fb && fb.dataset.v === '2w';
+      if (a <= 0) { toast('Впиши сумму'); return; }
+      if (two) {
+        const n = fromIso($('#slN').value); if (!n) { toast('Выбери дату ближайшей выплаты'); return; }
+        S.set.payFreq = '2w'; S.set.payAnchor = +sod(n);
+      } else {
+        const dd = r0(num($('#slD').value)); if (dd < 1 || dd > 31) { toast('Число от 1 до 31'); return; }
+        S.set.payFreq = 'month'; S.set.salaryDay = dd;
+      }
+      S.set.salary = a; save(); haptic(); closeSheet(); toast('Зарплата: ' + payText()); render(); break;
     }
     case 'paidBefore1': {
       const bl = billStatus().find(x => x.id === id); if (!bl) return;
@@ -1085,6 +1119,7 @@ document.addEventListener('click', async e => {
     case 'aOk': { const a = num($('#aAmt').value); if (a <= 0) { toast('Введи сумму'); return; } const cb = amountCb; const extra = {}; $$('#sheetBox [data-pick].on').forEach(x => extra[x.dataset.pick] = x.dataset.v); closeSheet(); cb && cb(a, extra); break; }
     case 'pick': {
       $$(`#sheetBox [data-pick="${b.dataset.pick}"]`).forEach(x => x.classList.toggle('on', x === b));
+      if (b.dataset.pick === 'freq') { $('#slMonth').style.display = b.dataset.v === '2w' ? 'none' : ''; $('#sl2w').style.display = b.dataset.v === '2w' ? '' : 'none'; }
       if (b.dataset.pick === 'kind' && $('#evPreWrap')) $('#evPreWrap').style.display = b.dataset.v === 'event' ? '' : 'none';
       break;
     }
@@ -1305,7 +1340,7 @@ document.addEventListener('click', async e => {
   }
 });
 
-const VERSION = 4;
+const VERSION = 5;
 function checkUpdate(){
   fetch('version.json?t=' + Date.now(), { cache:'no-store' }).then(r => r.json()).then(j => {
     if (j && j.v > VERSION) { const u = new URL(location.href); u.searchParams.set('v', j.v); location.replace(u.toString()); }
