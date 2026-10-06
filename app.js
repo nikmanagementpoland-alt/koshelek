@@ -213,22 +213,23 @@ function billStatus(){
     const L = Math.max(0, days);
     // Начало накопления: прошлый срок, а для первого срока после добавления платежа — день добавления
     const pm = prevMonth(due, b.day);
-    const pStart = (b.start && sameDay(due, b.start) && (b.from || 0) < +pm) ? sod(b.from) : pm;
+    // Копить начинаем с прошлого срока; если платёж добавлен позже — с первой зарплаты после этого (до неё денег нет)
+    let pStart = new Date(Math.max(+pm, +sod(b.from || 0)));
+    if (S.set.salary > 0 && sod(b.from || 0) > pm) {
+      let p = paydayOnOrBefore(sod(b.from)); if (p < sod(b.from)) p = nextPayday(p);
+      if (p < due) pStart = p;
+    }
     const P = Math.max(1, Math.round((due - pStart) / DAY));
     // Сколько по плану должно лежать в конверте, когда до срока останется x дней
     const reqAt = x => x <= 0 ? toPay : toPay * Math.min(1, Math.max(0, (P - x) / P));
     const clampNeed = v => Math.min(need, Math.max(0, v));
     const behind = clampNeed(reqAt(L) - saved);
     const perDay = L > 0 ? Math.ceil((need - behind) / L) : 0;
-    const covered = !!nextSalary && due >= nextSalary; // этот срок закроет следующая зарплата
-    let payday = null; // зарплата прямо перед сроком
-    if (covered) payday = paydayOnOrBefore(due);
+    const covered = false, payday = null; // зарплата больше не забирается целиком: копим понемногу каждый день
     // Сколько выплат осталось до срока: делим платёж на них поровну
-    let pays = 0;
-    if (covered) for (let p = nextSalary; p <= due && pays < 12; p = nextPayday(p)) pays++;
-    const perPay = covered && pays ? Math.ceil(need / pays) : 0;
-    const stash = covered ? 0 : Math.ceil(clampNeed(reqAt(L - 1) - saved)); // положить сегодня, чтобы идти по плану
-    const reserve = () => covered ? 0 : need;                                  // занято из наличных до срока
+    const pays = 0, perPay = 0;
+    const stash = Math.ceil(clampNeed(reqAt(L - 1) - saved)); // отложить сегодня, чтобы идти по плану
+    const reserve = D => clampNeed(reqAt(L - D) - saved);     // сколько из кошелька понадобится на конверты за D дней
     return { ...b, due, paid, toPay, saved, need, remaining:need, days, behind, perDay, stash, reserve, covered, payday, pays, perPay };
   }).sort((a, b) => a.due - b.due);
 }
@@ -243,29 +244,8 @@ function giglyThisMonth(){
 }
 
 // Раскладка прихода: сначала ближайшие платежи, потом подушка, Gigly, остальное в кошелёк
-function split(a, type){
-  const s = {};
-  let rest = a;
-  const D = daysToIncome();
-  const payStart = S.set.salary > 0 ? cycle().start : null;
-  for (const b of billStatus().filter(x => x.need > 0)) {
-    let want = b.reserve(D);
-    if (type === 'salary' && b.covered) { let k = 0; for (let p = payStart; p <= b.due && k < 12; p = nextPayday(p)) k++; want = b.need / Math.max(1, k); }
-    const take = Math.min(rest, Math.ceil(want));
-    if (take > 0) { s[b.id] = take; rest -= take; }
-    if (rest <= 0) break;
-  }
-  if (!['salary','start'].includes(type) && rest > 0) {
-    const toC = r0(rest * (S.set.cushionPct || 0) / 100);
-    if (toC > 0) { s.c = toC; rest -= toC; }
-  }
-  if (rest > 0 && S.set.giglyCap > 0 && type !== 'start') {
-    const toG = Math.min(Math.max(0, S.set.giglyCap - giglyThisMonth()), Math.floor(rest * 0.3));
-    if (toG > 0) { s.g = toG; rest -= toG; }
-  }
-  if (rest > 0) s.l = rest;
-  return s;
-}
+// Всё, что пришло, остаётся в кошельке. В конверты откладываешь сам, понемногу, по подсказке
+function split(a){ return { l:a }; }
 
 // Списание: сначала из выбранного конверта, нехватку берём из кошелька
 function debit(a, pref){
@@ -286,10 +266,11 @@ function today(){
   const spentToday = S.tx.filter(t => t.k === 'out' && t.t >= +now).reduce((a, t) => a + (t.s.l || 0), 0);
   const bills = billStatus();
   // Делим минимум на 7 дней: даже перед зарплатой не даём спустить всё за пару дней
-  const D = Math.max(7, daysLeft);
-  const short = reserveFor(bills, D); // из кошелька занято под платежи на это время
+  // Если зарплата известна — считаем ровно до неё; если нет — на неделю вперёд
+  const D = S.set.salary > 0 ? daysLeft : Math.max(7, daysLeft);
+  const short = reserveFor(bills, D); // столько из кошелька нужно отложить на платежи до следующих денег
   const free = env.l - short;
-  const daily = Math.max(0, Math.floor((free + spentToday) / D));
+  const daily = Math.max(0, Math.floor((free + spentToday) / Math.max(3, D))); // минимум на 3 дня: зарплата может задержаться
   // Что положить в конверты сегодня: отставание от плана + дневная доля
   const stashToday = bills.reduce((s, b) => s + b.stash, 0);
   const left = daily - spentToday;
@@ -374,7 +355,8 @@ function addIncome(a, type, ac, note, evId){
   if (evId) t.ev = evId;
   S.tx.push(t); save(); haptic();
   render();
-  showSpread(t);
+  const st = today().stashToday;
+  toast(`+${fmt(a)} в кошелёк.` + (st >= 1 ? ` Сегодня отложи в конверты ${fmt(st)}` : ''), [t.i]);
 }
 
 // После прихода: подсказка, сколько наличных в какой конверт положить
@@ -522,6 +504,11 @@ function entryDone(){
   if (st.mode === 'out') {
     const nc = $('#eNewCat') && $('#eNewCat').value.trim();
     const cat = nc ? cap(nc) : (st.cat || 'Другое');
+    const env = balances().env;
+    if (st.env === 'l' && env.l < a) {
+      const from = Object.keys(env).filter(k => k !== 'l' && env[k] > 0.5);
+      if (from.length) { closeSheet(); askSource(a, cat, st.ac, env, from); return; }
+    }
     closeSheet(); addExpense(a, cat, st.ac, st.env);
   } else {
     closeSheet(); addIncome(a, st.type, st.ac, st.note, st.ev);
@@ -535,6 +522,15 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Backspace') entryKey('⌫');
   else if (e.key === 'Enter') entryDone();
 });
+
+function askSource(a, cat, ac, env, from){
+  const inW = Math.max(0, env.l), rest = a - inW;
+  sheetState = { kind:'src', a, cat, ac, inW };
+  openSheet(`<h3>👛 В кошельке ${fmt(inW)}</h3>
+    <p class="muted" style="margin:-6px 0 12px">${cat} ${fmt(a)}: не хватает ${fmt(rest)}. Откуда взять?</p>
+    <div style="display:flex;flex-direction:column;gap:8px">${from.map(k => `<button class="btn sm full" style="padding:12px" data-act="srcPick" data-id="${k}">${envEmoji(k)} Из «${esc(envName(k))}» (там ${fmt(env[k])})</button>`).join('')}
+    <button class="btn sm full" style="padding:12px" data-act="srcPick" data-id="">Записать в минус кошелька</button></div>`);
+}
 
 /* Простая шторка для суммы (отложить, оплатить, взять) */
 function askAmount(o, cb){
@@ -715,9 +711,8 @@ function evSorted(){ return S.ev.filter(ev => evRest(ev) > 0).sort((a, b) => (a.
 function billRowHome(b, d){
   const cls = b.days < 0 && b.toPay > 0 ? 'bad' : b.need > 0 && b.days <= 5 && !b.covered ? 'warn' : b.need === 0 ? 'ok' : '';
   const status = b.toPay === 0 ? 'оплачено ✅'
-    : b.covered ? (b.pays > 1 ? `с каждой зарплаты по ~${fmt(b.perPay)} (${b.pays} выплаты)` : `закроется из зарплаты ${ddmm(b.payday)}`)
     : b.need === 0 ? 'в конверте всё есть ✅'
-    : `в конверте ${fmt(b.saved)} из ${fmt(b.toPay)}`;
+    : `в конверте ${fmt(b.saved)} из ${fmt(b.toPay)} · по ${fmt(b.perDay)} в день`;
   return `<div class="env-item">
     <div class="env-top"><div class="env-ic" data-act="editBill" data-id="${b.id}">${billEmoji(b)}</div>
       <div class="grow" data-act="editBill" data-id="${b.id}" style="cursor:pointer"><b>${esc(b.name)}</b> · ${fmt(b.toPay || b.amount)}
@@ -732,15 +727,21 @@ function viewHome(){
   const d = today();
   const cards = [];
   // 1. Что нужно поправить в данных — простыми кнопками
-  if (!S.set.salary) cards.push(`<div class="note warn"><span class="ic">💼</span><div class="grow">Укажи зарплату и день, когда она приходит. Тогда я пойму, что аренду закроет зарплата, и цифра станет точной.</div><button class="btn sm pri" data-act="salary">Указать</button></div>`);
+  if (!S.set.salary) cards.push(`<div class="note warn"><span class="ic">💼</span><div class="grow">Укажи зарплату и когда она приходит. Тогда я посчитаю, сколько можно тратить до неё.</div><button class="btn sm pri" data-act="salary">Указать</button></div>`);
   d.bills.filter(b => b.days < 0 && b.toPay > 0).forEach(b => cards.push(`<div class="note bad"><span class="ic">${billEmoji(b)}</span><div class="grow"><b>${esc(b.name)}</b>: срок был ${ddmm(b.due)}. Уже оплачено?</div><div class="btns"><button class="btn sm pri" data-act="paidBefore1" data-id="${b.id}">Да, оплачено</button><button class="btn sm" data-act="editBill" data-id="${b.id}">Другая дата</button></div></div>`));
   if (!S.set.chk4 && d.bills.length) cards.push(`<div class="note warn" style="display:block"><b>Проверь сроки платежей</b>
     ${d.bills.map(b => `<div class="row" style="margin-top:8px"><span class="grow">${billEmoji(b)} ${esc(b.name)} ${fmt(b.toPay || b.amount)} — до <b>${ddmm(b.due)}</b></span><button class="btn sm" data-act="editBill" data-id="${b.id}">Исправить</button></div>`).join('')}
     <button class="btn sm pri full" style="margin-top:10px" data-act="chk4">Всё верно</button></div>`);
   if (!S.set.tut) cards.push(`<div class="note ok"><span class="ic">👋</span><div class="grow small" style="line-height:1.5">Потратил → <b>➖</b>. Получил → <b>➕</b>. Ошибся → нажми на запись и исправь. Всё.</div><button class="btn sm" data-act="tutOk">Понятно</button></div>`);
   // 2. Что сделать сегодня
+  if (d.env.l < -0.5) {
+    const has = Object.keys(d.env).filter(k => k !== 'l' && d.env[k] > 0.5);
+    cards.push(`<div class="note bad"><span class="ic">👛</span><div class="grow">Кошелёк в минусе на <b>${fmt(-d.env.l)}</b>. ${has.length ? 'Взять деньги из конверта, чтобы сошлось?' : 'Так бывает, если трата не записана как приход. Нажми ➕ Получил или пересчитай наличные.'}</div>${has.length ? '<button class="btn sm pri" data-act="take">Взять</button>' : '<button class="btn sm" data-act="check">Пересчитать</button>'}</div>`);
+  }
   const stash = Math.min(d.stashToday, Math.max(0, d.env.l));
-  if (stash >= 1) cards.push(`<div class="note warn"><span class="ic">📥</span><div class="grow">Положи в конверт <b>${fmt(stash)}</b><div class="small">${d.bills.filter(b => b.stash > 0).map(b => `${esc(b.name)} ${fmt(b.stash)}`).join(', ')}</div></div><button class="btn sm pri" data-act="stashToday">Положил</button></div>`);
+  if (stash >= 1 && S.set.skipDay !== isoDate(Date.now())) cards.push(`<div class="note warn" style="display:block"><div class="row"><span class="ic">📥</span><div class="grow">Отложи сегодня <b>${fmt(stash)}</b><div class="small">${d.bills.filter(b => b.stash > 0).map(b => `${esc(b.name)} ${fmt(b.stash)}`).join(' · ')}</div></div></div>
+    <div class="small muted" style="margin:6px 0 8px">По чуть-чуть каждый день, и к сроку всё соберётся само.</div>
+    <div class="row"><button class="btn sm pri grow" data-act="stashToday">Отложил</button><button class="btn sm grow" data-act="skipStash">Не сегодня</button></div></div>`);
   S.ev.forEach(ev => {
     if (!ev.d) return;
     const rest = evRest(ev), n = daysTo(ev.d);
@@ -757,18 +758,19 @@ function viewHome(){
     <div class="lbl">Можно потратить сегодня</div>
     <div class="big">${fmt(Math.max(0, d.left))}</div>
     ${shortage
-      ? `<div class="sub" style="color:var(--tx)">Сейчас все наличные нужны на платежи.<br>Не переживай: как придут деньги, я сначала отложу туда.${salaryNear ? '<br>Зарплата уже пришла? Нажми <b>➕ Получил</b>.' : ''}</div>`
+      ? `<div class="sub" style="color:var(--tx)">Сейчас в кошельке меньше, чем нужно отложить на платежи.<br>Трать только на самое нужное: еда и дорога. ${salaryNear ? 'Зарплата уже пришла? Нажми <b>➕ Получил</b>.' : `Следующая зарплата ${ddmm(d.next)}.`}</div>`
       : `<div class="sub">${d.left < 0 ? `сегодня потратил на ${fmt(-d.left)} больше, завтра пересчитаю · ` : ''}${fmt(d.daily)} в день · до воскресенья ${fmt(d.week)}</div>`}
-    <button class="cash" data-act="check">👛 На руках <b>${fmt(d.total)}</b>${d.busy > 0 ? ` · из них на платежи ${fmt(Math.min(d.busy, d.total))}` : ''} <span class="muted">›</span></button>
+    <button class="cash" data-act="check">👛 На руках <b>${fmt(d.total)}</b>${d.busy > 0 ? ` · из них на платежи ${fmt(Math.min(d.busy, Math.max(0, d.total)))}` : ''} <span class="muted">›</span></button>
   </div>
   <div class="main2">
     <button class="btn out" data-act="out">➖ Потратил</button>
     <button class="btn in" data-act="in">➕ Получил</button>
   </div>
   <div class="chips mini">
+    <button class="chip" data-act="stashAny">📥 Отложить</button>
+    <button class="chip" data-act="take">👛 Взять</button>
     <button class="chip" data-act="want">🤔 Хочу</button>
-    <button class="chip" data-act="check">🧾 Пересчитать</button>
-    <button class="chip" data-act="newEv">💶 Жду деньги</button>
+    <button class="chip" data-act="check">🧾 Пересчёт</button>
   </div>
   ${cards.join('')}
   <div class="card"><div class="h">Платежи <button data-act="newBill">＋ добавить</button></div>
@@ -1008,7 +1010,7 @@ function viewSet(){
     <div class="row"><button class="btn sm grow" data-act="export">Скопировать копию</button><button class="btn sm grow" data-act="import">Вставить копию</button></div>
     <button class="btn sm full" data-act="reset" style="color:var(--bad);margin-top:8px">Стереть всё</button>
   </div>
-  <p class="muted small" style="text-align:center">Кошелёк v5</p>`;
+  <p class="muted small" style="text-align:center">Кошелёк v6</p>`;
 }
 
 function render(){
@@ -1044,6 +1046,29 @@ document.addEventListener('click', async e => {
     case 'goEnv': tab = 'env'; render(); window.scrollTo(0, 0); break;
     case 'goSet': tab = 'set'; render(); window.scrollTo(0, 0); break;
     case 'chk4': S.set.chk4 = true; save(); render(); break;
+    case 'skipStash': S.set.skipDay = isoDate(Date.now()); save(); toast('Хорошо, завтра напомню'); render(); break;
+    case 'take': {
+      const env = balances().env;
+      const from = Object.keys(env).filter(k => k !== 'l' && env[k] > 0.5);
+      if (!from.length) { toast('В конвертах пусто'); return; }
+      const first = from.sort((a, b) => env[b] - env[a])[0];
+      askAmount({ title:'👛 Взять в кошелёк', sub:`В кошельке ${fmt(env.l)}. Из какого конверта?`, value:env.l < 0 ? Math.min(-env.l, env[first]) : '',
+        extra:`<div class="chips" style="margin-bottom:12px">${from.map(k => `<button class="chip ${k === first ? 'on' : ''}" data-act="pick" data-pick="f" data-v="${k}">${envEmoji(k)} ${esc(envName(k))} ${r0(env[k])}</button>`).join('')}</div>`, btn:'Взял' },
+        (a, x) => { const f = x.f || first; addMove(Math.min(a, env[f]), f, 'l'); });
+      break;
+    }
+    case 'srcPick': {
+      const { a, cat, ac, inW } = sheetState; closeSheet();
+      if (!id) { addExpense(a, cat, ac, 'l'); break; }
+      const have = balances().env[id] || 0, s2 = {};
+      if (inW > 0) s2.l = inW;
+      const fromEnv = Math.min(a - inW, have); if (fromEnv > 0) s2[id] = fromEnv;
+      const left = a - inW - Math.max(0, fromEnv); if (left > 0) s2.l = (s2.l || 0) + left;
+      const t = { i:uid(), t:Date.now(), k:'out', a, c:cat, ac:ac || 'cash', s:s2 };
+      S.tx.push(t);
+      const c = S.cats[cat] || (S.cats[cat] = { n:0, last:0, ac:t.ac }); c.n++; c.last = a;
+      save(); haptic(); toast(`−${fmt(a)} ${cat}: ${fmt(inW)} из кошелька, ${fmt(fromEnv)} из «${envName(id)}»`, [t.i]); render(); break;
+    }
     case 'goHist': tab = 'hist'; render(); window.scrollTo(0, 0); break;
     case 'salary': {
       const two = S.set.payFreq === '2w';
@@ -1340,7 +1365,7 @@ document.addEventListener('click', async e => {
   }
 });
 
-const VERSION = 5;
+const VERSION = 6;
 function checkUpdate(){
   fetch('version.json?t=' + Date.now(), { cache:'no-store' }).then(r => r.json()).then(j => {
     if (j && j.v > VERSION) { const u = new URL(location.href); u.searchParams.set('v', j.v); location.replace(u.toString()); }
