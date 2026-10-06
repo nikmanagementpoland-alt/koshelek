@@ -189,7 +189,7 @@ function currentDue(b){
 
 // Состояние платежа: сколько ещё заплатить, сколько в конверте, план «по X в день» и отставание от плана
 function billStatus(){
-  const env = balances().env;
+  const env = balances().env, nextSalary = S.set.salary > 0 ? cycle().next : null;
   return S.set.bills.filter(b => b.amount > 0).map(b => {
     const due = currentDue(b);
     const paid = paidFor(b, due);
@@ -207,9 +207,12 @@ function billStatus(){
     const clampNeed = v => Math.min(need, Math.max(0, v));
     const behind = clampNeed(reqAt(L) - saved);
     const perDay = L > 0 ? Math.ceil((need - behind) / L) : 0;
-    const stash = Math.ceil(clampNeed(reqAt(L - 1) - saved)); // положить сегодня, чтобы идти по плану
-    const reserve = D => clampNeed(reqAt(L - D) - saved);       // занять из кошелька на ближайшие D дней
-    return { ...b, due, paid, toPay, saved, need, remaining:need, days, behind, perDay, stash, reserve };
+    const covered = !!nextSalary && due >= nextSalary; // этот срок закроет следующая зарплата
+    let payday = null; // зарплата прямо перед сроком
+    if (covered) { payday = clampDay(due.getFullYear(), due.getMonth(), S.set.salaryDay); if (payday > due) payday = prevMonth(payday, S.set.salaryDay); }
+    const stash = covered ? 0 : Math.ceil(clampNeed(reqAt(L - 1) - saved)); // положить сегодня, чтобы идти по плану
+    const reserve = () => covered ? 0 : need;                                  // занято из наличных до срока
+    return { ...b, due, paid, toPay, saved, need, remaining:need, days, behind, perDay, stash, reserve, covered, payday };
   }).sort((a, b) => a.due - b.due);
 }
 
@@ -688,111 +691,93 @@ function readBillRows(){
 function evRest(ev){ return Math.max(0, (ev.fee || 0) - evGot(ev)); }
 function evSorted(){ return S.ev.filter(ev => evRest(ev) > 0).sort((a, b) => (a.d || 9e15) - (b.d || 9e15)); }
 
+function billRowHome(b, d){
+  const cls = b.days < 0 && b.toPay > 0 ? 'bad' : b.need > 0 && b.days <= 5 && !b.covered ? 'warn' : b.need === 0 ? 'ok' : '';
+  const status = b.toPay === 0 ? 'оплачено ✅'
+    : b.covered ? `закроется из зарплаты ${ddmm(b.payday)}`
+    : b.need === 0 ? 'в конверте всё есть ✅'
+    : `в конверте ${fmt(b.saved)} из ${fmt(b.toPay)}`;
+  return `<div class="env-item">
+    <div class="env-top"><div class="env-ic" data-act="editBill" data-id="${b.id}">${billEmoji(b)}</div>
+      <div class="grow" data-act="editBill" data-id="${b.id}" style="cursor:pointer"><b>${esc(b.name)}</b> · ${fmt(b.toPay || b.amount)}
+        <div class="small muted">до <b style="color:var(--tx)">${ddmm(b.due)}</b> · <span class="pill ${cls}">${when(b.due)}</span></div>
+        <div class="small muted">${status}</div></div>
+      <button class="btn sm ${b.days <= 5 ? 'pri' : ''}" data-act="payBill" data-id="${b.id}">Оплатил</button></div>
+    ${!b.covered && b.toPay > 0 ? `<div class="bar ${b.need ? '' : 'ok'}"><i style="width:${Math.min(100, b.saved / b.toPay * 100)}%"></i></div>` : ''}
+  </div>`;
+}
+
 function viewHome(){
   const d = today();
-  const notes = [];
-  if (!S.set.tut) notes.push(`<div class="note ok" style="display:block"><b>Как пользоваться</b>
-    <div class="small" style="margin-top:6px;line-height:1.5">1. Потратил → <b>➖ Потратил</b>, набери сумму, нажми категорию.<br>2. Получил → <b>➕ Получил</b>, и я скажу, сколько положить в какой конверт.<br>3. Любую цифру можно исправить: нажми на платёж, конверт или запись в истории.<br>4. Раз в неделю пересчитай наличные → <b>🧾 Сверка</b>.</div>
-    <button class="btn sm" style="margin-top:8px" data-act="tutOk">Понятно</button></div>`);
-
-  if (d.free < 0) {
-    const nb = d.bills.find(x => x.need > 0);
-    notes.push(`<div class="note bad"><span class="ic">🧯</span><div class="grow">На платежи не хватает <b>${fmt(-d.free)}</b>${nb ? ` (ближайший: ${esc(nb.name)}, до ${ddmm(nb.due)})` : ''}. Поэтому сейчас «можно» = 0. Каждый приход сначала пойдёт туда, траты по минимуму: еда и дорога.</div></div>`);
-  }
-  // Отложить сегодня: отставание от плана + дневная доля
+  const cards = [];
+  // 1. Что нужно поправить в данных — простыми кнопками
+  if (!S.set.salary) cards.push(`<div class="note warn"><span class="ic">💼</span><div class="grow">Укажи зарплату и день, когда она приходит. Тогда я пойму, что аренду закроет зарплата, и цифра станет точной.</div><button class="btn sm pri" data-act="salary">Указать</button></div>`);
+  d.bills.filter(b => b.days < 0 && b.toPay > 0).forEach(b => cards.push(`<div class="note bad"><span class="ic">${billEmoji(b)}</span><div class="grow"><b>${esc(b.name)}</b>: срок был ${ddmm(b.due)}. Уже оплачено?</div><div class="btns"><button class="btn sm pri" data-act="paidBefore1" data-id="${b.id}">Да, оплачено</button><button class="btn sm" data-act="editBill" data-id="${b.id}">Другая дата</button></div></div>`));
+  if (!S.set.chk4 && d.bills.length) cards.push(`<div class="note warn" style="display:block"><b>Проверь сроки платежей</b>
+    ${d.bills.map(b => `<div class="row" style="margin-top:8px"><span class="grow">${billEmoji(b)} ${esc(b.name)} ${fmt(b.toPay || b.amount)} — до <b>${ddmm(b.due)}</b></span><button class="btn sm" data-act="editBill" data-id="${b.id}">Исправить</button></div>`).join('')}
+    <button class="btn sm pri full" style="margin-top:10px" data-act="chk4">Всё верно</button></div>`);
+  if (!S.set.tut) cards.push(`<div class="note ok"><span class="ic">👋</span><div class="grow small" style="line-height:1.5">Потратил → <b>➖</b>. Получил → <b>➕</b>. Ошибся → нажми на запись и исправь. Всё.</div><button class="btn sm" data-act="tutOk">Понятно</button></div>`);
+  // 2. Что сделать сегодня
   const stash = Math.min(d.stashToday, Math.max(0, d.env.l));
-  if (stash >= 1) {
-    const parts = d.bills.filter(b => b.stash > 0).map(b => `${esc(b.name)} ${fmt(b.stash)}`).join(', ');
-    notes.push(`<div class="note warn"><span class="ic">📥</span><div class="grow">Сегодня отложи в конверты <b>${fmt(stash)}</b><div class="small">${parts}</div></div><button class="btn sm" data-act="stashToday">Отложил</button></div>`);
-  }
-  d.bills.forEach(b => {
-    if (b.days <= 5 && b.toPay > 0) {
-      const cls = b.need > 0 ? (b.days <= 1 ? 'bad' : 'warn') : 'ok';
-      notes.push(`<div class="note ${cls}"><span class="ic">${billEmoji(b)}</span><div class="grow">${esc(b.name)} ${fmt(b.toPay)} — <b>${when(b.due)}</b> (${ddmm(b.due)}). ${b.need > 0 ? `В конверте ${fmt(b.saved)}, не хватает ${fmt(b.need)}.` : 'В конверте всё есть ✅'}</div><button class="btn sm" data-act="payBill" data-id="${b.id}">Оплатил</button></div>`);
-    }
-  });
+  if (stash >= 1) cards.push(`<div class="note warn"><span class="ic">📥</span><div class="grow">Положи в конверт <b>${fmt(stash)}</b><div class="small">${d.bills.filter(b => b.stash > 0).map(b => `${esc(b.name)} ${fmt(b.stash)}`).join(', ')}</div></div><button class="btn sm pri" data-act="stashToday">Положил</button></div>`);
   S.ev.forEach(ev => {
     if (!ev.d) return;
     const rest = evRest(ev), n = daysTo(ev.d);
-    if (rest > 0 && n <= 0 && n >= -14) notes.push(`<div class="note"><span class="ic">${evEmoji(ev)}</span><div class="grow">${esc(ev.name)}: ждёшь ${fmt(rest)} (${n === 0 ? 'сегодня' : ddmm(ev.d)}). Пришли?</div><button class="btn sm" data-act="evGet" data-id="${ev.i}">Пришли</button></div>`);
+    if (rest > 0 && n <= 0 && n >= -14) cards.push(`<div class="note"><span class="ic">${evEmoji(ev)}</span><div class="grow">${esc(ev.name)}: ${fmt(rest)}. Деньги пришли?</div><button class="btn sm pri" data-act="evGet" data-id="${ev.i}">Пришли</button></div>`);
   });
-  const ready = S.wish.items.filter(w => Date.now() - w.t >= 48 * 3600e3);
-  ready.forEach(w => notes.push(`<div class="note"><span class="ic">⏳</span><div class="grow">Прошло 2 дня. Всё ещё хочешь <b>${esc(w.name || 'покупку')}</b> за ${fmt(w.a)}?</div><div class="btns"><button class="btn sm" data-act="wishBuy" data-id="${w.i}">Купил</button><button class="btn sm" data-act="wishSkip" data-id="${w.i}">Не надо</button></div></div>`));
-  const dow = new Date().getDay();
-  if ((dow === 5 || dow === 6) && d.week > 0) notes.push(`<div class="note"><span class="ic">🎉</span><div>На выходные у тебя ${fmt(d.week)}. Платежи уже учтены, это свободные.</div></div>`);
-  const lastCheck = [...S.tx].reverse().find(t => t.k === 'adj' || t.k === 'chk');
-  if (S.tx.length > 10 && (!lastCheck || Date.now() - lastCheck.t > 7 * DAY)) notes.push(`<div class="note"><span class="ic">🧾</span><div class="grow">Неделю не сверялся. Пересчитай наличные, это 1 минута.</div><button class="btn sm" data-act="check">Сверка</button></div>`);
+  S.wish.items.filter(w => Date.now() - w.t >= 48 * 3600e3).forEach(w => cards.push(`<div class="note"><span class="ic">⏳</span><div class="grow">Прошло 2 дня. Всё ещё хочешь <b>${esc(w.name || 'покупку')}</b> за ${fmt(w.a)}?</div><div class="btns"><button class="btn sm" data-act="wishBuy" data-id="${w.i}">Купил</button><button class="btn sm" data-act="wishSkip" data-id="${w.i}">Не надо</button></div></div>`));
 
-  const quickCats = topCats().slice(0, 8);
-  const waiting = S.wish.items.length - ready.length;
+  const shortage = d.free < 0;
+  const salaryNear = S.set.salary > 0 && daysTo(cycle().start) >= -2;
+  const recent = [...S.tx].reverse().filter(t => t.k === 'out' || t.k === 'in').slice(0, 4);
   const evs = evSorted();
   return `
   <div class="card hero">
     <div class="lbl">Можно потратить сегодня</div>
-    <div class="big">${d.left < 0 ? '0 zł' : fmt(d.left)}</div>
-    <div class="sub">${d.left < 0 ? `сегодня сверх на ${fmt(-d.left)} · завтра лимит пересчитается<br>` : ''}лимит ${fmt(d.daily)} в день · до воскресенья ${fmt(d.week)}${S.set.salary > 0 ? ` · зарплата ${ddmm(d.next)}` : ''}</div>
-    <div class="tri">
-      <div data-act="goEnv"><small>Всего наличных</small><b>${fmt(d.total)}</b></div>
-      <div data-act="goEnv"><small>На платежи</small><b>${fmt(d.busy)}</b></div>
-      <div data-act="goEnv"><small>Свободно</small><b class="${d.free < 0 ? 'minus' : ''}">${fmt(d.free)}</b></div>
-    </div>
-    <div class="small muted" style="margin-top:8px" data-act="goPlan">Считаю только то, что на руках${d.expected > 0 ? ` · ждёшь ещё ${fmt(d.expected)} →` : ''}</div>
+    <div class="big">${fmt(Math.max(0, d.left))}</div>
+    ${shortage
+      ? `<div class="sub" style="color:var(--tx)">Сейчас все наличные нужны на платежи.<br>Не переживай: как придут деньги, я сначала отложу туда.${salaryNear ? '<br>Зарплата уже пришла? Нажми <b>➕ Получил</b>.' : ''}</div>`
+      : `<div class="sub">${d.left < 0 ? `сегодня потратил на ${fmt(-d.left)} больше, завтра пересчитаю · ` : ''}${fmt(d.daily)} в день · до воскресенья ${fmt(d.week)}</div>`}
+    <button class="cash" data-act="check">👛 На руках <b>${fmt(d.total)}</b>${d.busy > 0 ? ` · из них на платежи ${fmt(Math.min(d.busy, d.total))}` : ''} <span class="muted">›</span></button>
   </div>
   <div class="main2">
     <button class="btn out" data-act="out">➖ Потратил</button>
     <button class="btn in" data-act="in">➕ Получил</button>
   </div>
-  <div class="acts">
-    <button class="btn" data-act="want"><b>🤔</b>Хочу${waiting ? ` (${waiting})` : ''}</button>
-    <button class="btn" data-act="stashAny"><b>📥</b>Отложить</button>
-    <button class="btn" data-act="check"><b>🧾</b>Сверка</button>
-    <button class="btn" data-act="newEv"><b>💶</b>Жду деньги</button>
+  <div class="chips mini">
+    <button class="chip" data-act="want">🤔 Хочу</button>
+    <button class="chip" data-act="check">🧾 Пересчитать</button>
+    <button class="chip" data-act="newEv">💶 Жду деньги</button>
   </div>
-  ${notes.join('')}
-  ${d.bills.length ? `<div class="card"><div class="h">Платежи <button data-act="goEnv">все →</button></div>${d.bills.slice(0, 3).map(b => `
-    <div class="env-item" data-act="editBill" data-id="${b.id}" style="cursor:pointer">
-      <div class="env-top"><div class="env-ic">${billEmoji(b)}</div><div class="grow"><b>${esc(b.name)}</b> <span class="pill ${b.days < 0 ? 'bad' : b.need > 0 && b.days <= 5 ? 'warn' : b.need === 0 ? 'ok' : ''}">${b.need === 0 ? 'собрано' : when(b.due)}</span>
-        <div class="small muted">до ${ddmm(b.due)} · ${b.paid > 0 ? `осталось ${fmt(b.toPay)} из ${fmt(b.amount)}` : fmt(b.amount)}</div></div><div style="text-align:right"><b>${fmt(b.saved)}</b><div class="small muted">в конверте</div></div></div>
-      <div class="bar ${b.need ? '' : 'ok'}"><i style="width:${b.toPay ? Math.min(100, b.saved / b.toPay * 100) : 100}%"></i></div>
-      ${b.need > 0 ? `<div class="small muted" style="margin-top:5px">по ${fmt(b.perDay)} в день${b.behind > 0 ? ` · отстаёшь от плана на ${fmt(b.behind)}` : ''}</div>` : ''}
-    </div>`).join('')}</div>` : `<div class="card"><div class="h">Платежи</div><button class="btn sm full" data-act="newBill">＋ Добавить аренду и другие платежи</button></div>`}
-  ${evs.length ? `<div class="card"><div class="h">Жду деньги <button data-act="newEv">＋</button></div><div class="list">${evs.slice(0, 3).map(ev => `
-    <div class="it" data-act="openEv" data-id="${ev.i}" style="cursor:pointer"><div class="em">${evEmoji(ev)}</div><div class="grow">${esc(ev.name)}<div class="meta">${ev.d ? ddmm(ev.d) + ' · ' + when(ev.d) : 'без даты'}</div></div><b class="plus">${fmt(evRest(ev))}</b><button class="btn sm" data-act="evGet" data-id="${ev.i}" style="margin-left:6px">Пришли</button></div>`).join('')}</div></div>` : ''}
-  <div class="card"><div class="h">Частые траты · одно нажатие</div><div class="chips">${quickCats.map(c => `<button class="chip" data-act="outCat" data-cat="${esc(c)}">${emo(c)} ${esc(c)}${S.cats[c].last ? ' · ' + r0(S.cats[c].last) : ''}</button>`).join('')}</div>
+  ${cards.join('')}
+  <div class="card"><div class="h">Платежи <button data-act="newBill">＋ добавить</button></div>
+    ${d.bills.length ? d.bills.map(b => billRowHome(b, d)).join('') : '<button class="btn sm full" data-act="newBill">＋ Добавить аренду и другие платежи</button>'}
+  </div>
+  ${evs.length ? `<div class="card"><div class="h">Жду деньги <span class="small" style="text-transform:none">в «можно» не входят</span></div><div class="list">${evs.slice(0, 4).map(ev => `
+    <div class="it"><div class="em" data-act="openEv" data-id="${ev.i}">${evEmoji(ev)}</div><div class="grow" data-act="openEv" data-id="${ev.i}" style="cursor:pointer">${esc(ev.name)}<div class="meta">${ev.d ? ddmm(ev.d) : 'без даты'}</div></div><b class="plus">${fmt(evRest(ev))}</b><button class="btn sm" data-act="evGet" data-id="${ev.i}" style="margin-left:6px">Пришли</button></div>`).join('')}</div></div>` : ''}
+  <div class="card"><div class="h">Последние записи <button data-act="goHist">все →</button></div>
+    ${recent.length ? `<div class="list">${recent.map(txLine).join('')}</div>` : '<p class="muted small" style="margin:0">Пока пусто. Нажми ➖ Потратил или ➕ Получил.</p>'}
     <form class="quick" id="quickForm" style="margin-top:10px"><input id="quickIn" placeholder="или напиши: 40 такси · +500 предоплата" autocomplete="off" enterkeyhint="done"><button class="btn sm pri" style="padding:0 14px">↵</button></form>
   </div>`;
 }
 
 function viewEnv(){
   const d = today(), env = d.env;
-  const bills = d.bills;
-  const stack = [['l', env.l], ...bills.map(b => [b.id, b.saved]), ['c', env.c], ['g', env.g]];
-  if (Math.abs(env.m || 0) > 0.5) stack.push(['m', env.m]);
+  const own = [['l', env.l], ['c', env.c], ['g', env.g]];
+  if (Math.abs(env.m || 0) > 0.5) own.push(['m', env.m]);
   return `
-  <div class="card"><div class="h">Всего наличных <b style="color:var(--tx);font-size:17px;text-transform:none">${fmt(d.total)}</b></div>
-    <div class="stack">${stack.map(([k, v]) => `<div class="kv" data-act="envRow" data-id="${k}" style="cursor:pointer"><span>${envEmoji(k)} ${esc(envName(k))}</span><b>${fmt(v)} <span class="muted">›</span></b></div>`).join('')}</div>
-    ${S.set.hasCard ? `<div class="small muted" style="margin-top:8px">💵 наличные ${fmt(d.acc.cash)} · 💳 карта ${fmt(d.acc.card)}</div>` : ''}
-    <div class="row" style="margin-top:10px"><button class="btn sm grow" data-act="move">↔ Переложить</button><button class="btn sm grow" data-act="check">🧾 Сверка</button>${S.set.hasCard ? '<button class="btn sm grow" data-act="xfer">⇄ Снял</button>' : ''}</div>
-  </div>
   <div class="card"><div class="h">Платежи <button data-act="newBill">＋ добавить</button></div>
-  ${bills.length ? bills.map(b => {
-    const pct = b.toPay ? Math.min(100, b.saved / b.toPay * 100) : 100;
-    const pill = b.days < 0 ? `<span class="pill bad">просрочено</span>` : b.need === 0 ? `<span class="pill ok">собрано</span>` : b.days <= 5 ? `<span class="pill warn">${when(b.due)}</span>` : `<span class="pill">${when(b.due)}</span>`;
-    return `<div class="env-item">
-      <div class="env-top" data-act="editBill" data-id="${b.id}" style="cursor:pointer"><div class="env-ic">${billEmoji(b)}</div><div class="grow"><b>${esc(b.name)}</b> ${pill}<div class="small muted">до ${ddmm(b.due)} (${wday(b.due)}) · ${fmt(b.amount)} в месяц ✎</div></div><div style="text-align:right"><b>${fmt(b.saved)}</b><div class="small muted">в конверте</div></div></div>
-      <div class="bar ${b.need ? '' : 'ok'}"><i style="width:${pct}%"></i></div>
-      <div class="small muted" style="margin-top:6px">${b.paid > 0 ? `Уже оплачено ${fmt(b.paid)}, осталось заплатить ${fmt(b.toPay)}. ` : ''}${b.need > 0
-        ? `Осталось отложить ${fmt(b.need)} → по <b style="color:var(--tx)">${fmt(b.perDay)}</b> в день.${b.behind > 0 ? ` По плану сейчас отстаёшь на ${fmt(b.behind)}.` : ''}`
-        : 'Всё собрано, можно платить ✅'}</div>
-      <div class="env-act"><button class="btn sm pri" data-act="stashBill" data-id="${b.id}">📥 Отложить</button><button class="btn sm" data-act="payBill" data-id="${b.id}">✅ Оплатил</button>${b.saved > 0 ? `<button class="btn sm" data-act="takeEnv" data-id="${b.id}">↩ Взять</button>` : ''}</div>
-    </div>`; }).join('') : '<p class="muted">Платежей нет. Нажми «＋ добавить».</p>'}
+  ${d.bills.length ? d.bills.map(b => `${billRowHome(b, d)}
+    <div class="small muted" style="margin:6px 0 2px">${b.toPay === 0 ? `Следующий срок ${ddmm(nextMonth(b.due, b.day))}.`
+      : b.covered ? `Когда придёт зарплата ${ddmm(b.payday)}, сначала отложу на это. Можно копить и заранее.`
+      : b.need > 0 ? `Отложить ещё ${fmt(b.need)} → по ${fmt(b.perDay)} в день.` : 'Всё собрано, можно платить.'}</div>
+    <div class="env-act" style="margin-bottom:6px"><button class="btn sm" data-act="stashBill" data-id="${b.id}">📥 Положить в конверт</button>${b.saved > 0 ? `<button class="btn sm" data-act="takeEnv" data-id="${b.id}">↩ Взять</button>` : ''}<button class="btn sm" data-act="editBill" data-id="${b.id}">✎ Изменить</button></div>`).join('')
+    : '<p class="muted">Платежей нет. Нажми «＋ добавить».</p>'}
   </div>
-  <div class="card"><div class="h">Свои конверты</div>
-    <div class="env-item"><div class="env-top"><div class="env-ic">🛟</div><div class="grow"><b>Подушка</b><div class="small muted">цель ${fmt(S.set.cushionGoal)} · ${S.set.cushionPct}% с каждого нерегулярного прихода</div></div><b>${fmt(env.c)}</b></div>
-      <div class="bar ok"><i style="width:${Math.min(100, Math.max(0, env.c) / (S.set.cushionGoal || 1) * 100)}%"></i></div>
-      <div class="env-act"><button class="btn sm" data-act="stashEnv" data-id="c">📥 Отложить</button>${env.c > 0 ? '<button class="btn sm" data-act="takeEnv" data-id="c">↩ Взять</button>' : ''}</div></div>
-    <div class="env-item"><div class="env-top"><div class="env-ic">🚀</div><div class="grow"><b>Gigly</b><div class="small muted">${S.set.giglyCap ? `в этом месяце ${fmt(giglyThisMonth())} из ${fmt(S.set.giglyCap)}` : 'лимит не задан'}</div></div><b>${fmt(env.g)}</b></div>
-      <div class="env-act"><button class="btn sm" data-act="outCat" data-cat="Gigly">➖ Потратил на Gigly</button>${env.g > 0 ? '<button class="btn sm" data-act="takeEnv" data-id="g">↩ Взять</button>' : ''}</div></div>
+  <div class="card"><div class="h">Где лежат наличные · всего ${fmt(d.total)}</div>
+    <div class="stack">${[...d.bills.filter(b => b.saved > 0).map(b => [b.id, b.saved]), ...own].map(([k, v]) => `<div class="kv" data-act="envRow" data-id="${k}" style="cursor:pointer"><span>${envEmoji(k)} ${esc(envName(k))}</span><b>${fmt(v)} <span class="muted">›</span></b></div>`).join('')}</div>
+    <p class="small muted" style="margin:8px 0 0">🛟 Подушка — ${S.set.cushionPct}% с предоплат, гонораров и чаевых, цель ${fmt(S.set.cushionGoal)}. 🚀 Gigly — ${S.set.giglyCap ? `до ${fmt(S.set.giglyCap)} в месяц, сейчас ${fmt(giglyThisMonth())}` : 'лимит не задан'}.</p>
+    <div class="row" style="margin-top:10px"><button class="btn sm grow" data-act="move">↔ Переложить</button><button class="btn sm grow" data-act="check">🧾 Пересчитать</button>${S.set.hasCard ? '<button class="btn sm grow" data-act="xfer">⇄ Снял</button>' : ''}</div>
   </div>`;
 }
 
@@ -807,7 +792,8 @@ function viewPlan(){
   const tips = [];
   if (fc.gap) tips.push(['⚠️', `Около ${ddmm(fc.gap.d)} (${esc(fc.gap.label)}) может не хватить ~${fmt(fc.gap.amount)}. Есть ${dn(Math.max(0, daysTo(fc.gap.d)))}: если тратить на ${fmt(fc.gap.amount / Math.max(1, daysTo(fc.gap.d)))} в день меньше, дыры не будет.`]);
   else tips.push(['✅', `На 45 дней вперёд дыр не видно при расходе ~${fmt(avg)} в день.`]);
-  d.bills.filter(b => b.need > 0).slice(0, 3).forEach(b => tips.push([billEmoji(b), `${esc(b.name)}: до ${ddmm(b.due)} отложить ещё ${fmt(b.need)}, это по ${fmt(b.perDay)} в день${b.behind > 0 ? `. Сейчас отстаёшь от плана на ${fmt(b.behind)}: следующий приход закроет это первым` : ''}.`]));
+  d.bills.filter(b => b.covered && b.toPay > 0).forEach(b => tips.push([billEmoji(b), `${esc(b.name)} до ${ddmm(b.due)} закроется из зарплаты ${ddmm(b.payday)}. Из сегодняшних наличных на это не откладываю.`]));
+  d.bills.filter(b => b.need > 0 && !b.covered).slice(0, 3).forEach(b => tips.push([billEmoji(b), `${esc(b.name)}: до ${ddmm(b.due)} отложить ещё ${fmt(b.need)}, это по ${fmt(b.perDay)} в день${b.behind > 0 ? `. Сейчас отстаёшь от плана на ${fmt(b.behind)}: следующий приход закроет это первым` : ''}.`]));
   if (d.free > 0 && avg > 0) {
     const lasts = Math.floor(d.free / avg);
     tips.push(['⏱️', `Свободных ${fmt(d.free)} при твоём темпе хватит на ${dn(lasts)}. Лимит ${fmt(d.daily)} в день.`]);
@@ -1001,7 +987,7 @@ function viewSet(){
     <div class="row"><button class="btn sm grow" data-act="export">Скопировать копию</button><button class="btn sm grow" data-act="import">Вставить копию</button></div>
     <button class="btn sm full" data-act="reset" style="color:var(--bad);margin-top:8px">Стереть всё</button>
   </div>
-  <p class="muted small" style="text-align:center">Кошелёк v3</p>`;
+  <p class="muted small" style="text-align:center">Кошелёк v4</p>`;
 }
 
 function render(){
@@ -1037,6 +1023,32 @@ document.addEventListener('click', async e => {
     case 'tutOk': S.set.tut = true; save(); render(); break;
     case 'goEnv': tab = 'env'; render(); window.scrollTo(0, 0); break;
     case 'goSet': tab = 'set'; render(); window.scrollTo(0, 0); break;
+    case 'chk4': S.set.chk4 = true; save(); render(); break;
+    case 'goHist': tab = 'hist'; render(); window.scrollTo(0, 0); break;
+    case 'salary': {
+      openSheet(`<h3>💼 Зарплата</h3>
+        <div class="half field"><div><label>Сколько на руки, zł</label><input id="slA" inputmode="decimal" value="${S.set.salary || ''}" placeholder="8000"></div><div><label>Какого числа</label><input id="slD" inputmode="numeric" value="${S.set.salary ? S.set.salaryDay : ''}" placeholder="10"></div></div>
+        <button class="btn pri full" data-act="salarySave">Сохранить</button>`);
+      setTimeout(() => $('#slA').focus(), 80); break;
+    }
+    case 'salarySave': {
+      const a = num($('#slA').value), dd = r0(num($('#slD').value));
+      if (a <= 0 || dd < 1 || dd > 31) { toast('Впиши сумму и число от 1 до 31'); return; }
+      S.set.salary = a; S.set.salaryDay = dd; save(); haptic(); closeSheet(); toast(`Зарплата ${fmt(a)} каждое ${dd}-е`); render(); break;
+    }
+    case 'paidBefore1': {
+      const bl = billStatus().find(x => x.id === id); if (!bl) return;
+      setPaidOutside(id, bl.amount); save(); haptic();
+      toast(`${bl.name} за ${ddmm(bl.due)} отмечен оплаченным. Следующий срок ${ddmm(nextMonth(bl.due, bl.day))}`); render(); break;
+    }
+    case 'payNow': case 'paidBefore': {
+      const a = num($('#aAmt').value); if (a <= 0) { toast('Впиши сумму'); return; }
+      const bl = billStatus().find(x => x.id === id); if (!bl) return;
+      closeSheet();
+      if (act === 'payNow') addPay(id, a, 'cash');
+      else { setPaidOutside(id, bl.paid + a); save(); haptic(); toast(`${bl.name}: отметил ${fmt(a)} как уже оплаченное. Наличные не трогал`); render(); }
+      break;
+    }
     case 'goPlan': tab = 'ai'; aiSec = 'plan'; render(); window.scrollTo(0, 0); break;
 
     /* ввод */
@@ -1116,7 +1128,11 @@ document.addEventListener('click', async e => {
     case 'payBill': {
       const bl = billStatus().find(x => x.id === id);
       if (!bl) return;
-      askAmount({ title:`✅ ${esc(bl.name)}: сколько отдал?`, sub:`Срок ${ddmm(bl.due)}, осталось заплатить ${fmt(bl.toPay)}. В конверте ${fmt(bl.saved)}${bl.saved < bl.toPay ? ', нехватку возьму из кошелька' : ''}. Можно платить частями.`, value:bl.toPay, chips:[[`всё ${fmt(bl.toPay)}`, bl.toPay]], btn:'Отдал' }, a => addPay(id, a, 'cash'));
+      openSheet(`<h3>${billEmoji(bl)} ${esc(bl.name)} · до ${ddmm(bl.due)}</h3>
+        <p class="muted" style="margin:-6px 0 10px">Осталось заплатить ${fmt(bl.toPay)}. Можно частями.</p>
+        <div class="field"><input id="aAmt" class="amtView" style="font-size:34px;padding:8px" inputmode="decimal" value="${r0(bl.toPay)}"></div>
+        <button class="btn pri full" data-act="payNow" data-id="${id}" style="margin-bottom:8px">💵 Отдал сейчас из наличных</button>
+        <button class="btn sm full" data-act="paidBefore" data-id="${id}" style="padding:12px">✓ Уже было оплачено раньше (наличные не трогать)</button>`);
       break;
     }
     case 'move': {
@@ -1289,4 +1305,11 @@ document.addEventListener('click', async e => {
   }
 });
 
-load().then(render);
+const VERSION = 4;
+function checkUpdate(){
+  fetch('version.json?t=' + Date.now(), { cache:'no-store' }).then(r => r.json()).then(j => {
+    if (j && j.v > VERSION) { const u = new URL(location.href); u.searchParams.set('v', j.v); location.replace(u.toString()); }
+  }).catch(() => {});
+}
+load().then(() => { render(); checkUpdate(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
